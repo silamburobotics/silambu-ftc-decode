@@ -7,6 +7,7 @@ import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.DcMotorEx;
 import com.qualcomm.robotcore.hardware.DcMotorSimple;
 import com.qualcomm.robotcore.hardware.CRServo;
+import com.qualcomm.robotcore.hardware.Servo;
 @Config
 @TeleOp(name = "Four Motor TeleOp", group = "TeleOp")
 public class FourMotorTeleOp extends LinearOpMode {
@@ -17,13 +18,15 @@ public class FourMotorTeleOp extends LinearOpMode {
     private DcMotorEx shooter;
     private DcMotorEx conveyor; // Fixed typo from "notor_converyor"
     
-    // Declare servo
+    // Declare servos
     private CRServo shooterServo;
+    private Servo triggerServo;
     
     // Variables to track button states
     private boolean previousX = false;
     private boolean previousA = false;
     private boolean previousY = false;
+    private boolean previousB = false;
     
     // Motor power settings
     public static final double INTAKE_POWER = 0.8;
@@ -33,6 +36,10 @@ public class FourMotorTeleOp extends LinearOpMode {
     
     // Servo power settings
     public static final double SHOOTER_SERVO_POWER = 1.0;
+    
+    // Trigger servo position settings (0.0 = 0 degrees, 1.0 = 180 degrees)
+    public static final double TRIGGER_SERVO_MIN_POSITION = 0.0;      // 0 degrees
+    public static final double TRIGGER_SERVO_MAX_POSITION = 0.333;    // 60 degrees (60/180 = 0.333)
     
     // Shooter velocity control (ticks per second)
     public static double SHOOTER_TARGET_VELOCITY = 1600; // Range: 1200-1800 ticks/sec
@@ -47,6 +54,7 @@ public class FourMotorTeleOp extends LinearOpMode {
         telemetry.addData("Instructions", "X = Indexor (3500 ticks)");
         telemetry.addData("Instructions", "A = Intake + Converyor");
         telemetry.addData("Instructions", "Y = Shooter");
+        telemetry.addData("Instructions", "B = Trigger Servo (0-60°)");
         telemetry.update();
         
         waitForStart();
@@ -66,8 +74,9 @@ public class FourMotorTeleOp extends LinearOpMode {
         shooter = hardwareMap.get(DcMotorEx.class, "shooter");
         conveyor = hardwareMap.get(DcMotorEx.class, "conveyor");
         
-        // Initialize servo
+        // Initialize servos
         shooterServo = hardwareMap.get(CRServo.class, "shooterServo");
+        triggerServo = hardwareMap.get(Servo.class, "triggerServo");
         
         // Set motor directions (adjust as needed for your robot)
         indexor.setDirection(DcMotor.Direction.REVERSE);
@@ -75,16 +84,18 @@ public class FourMotorTeleOp extends LinearOpMode {
         shooter.setDirection(DcMotor.Direction.REVERSE);
         conveyor.setDirection(DcMotor.Direction.REVERSE);
         
-        // Set servo direction
+        // Set servo directions
         shooterServo.setDirection(DcMotorSimple.Direction.REVERSE);
+        triggerServo.setDirection(Servo.Direction.FORWARD);
         
         // Set zero power behavior
         indexor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         intake.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         conveyor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         
-        // Initialize servo to stopped
+        // Initialize servos to starting positions
         shooterServo.setPower(0);
+        triggerServo.setPosition(TRIGGER_SERVO_MIN_POSITION); // Start at 0 degrees
         
         // Reset encoders
         indexor.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
@@ -104,6 +115,7 @@ public class FourMotorTeleOp extends LinearOpMode {
         boolean currentX = gamepad1.x;
         boolean currentA = gamepad1.a;
         boolean currentY = gamepad1.y;
+        boolean currentB = gamepad1.b;
         
         // Handle X button - Run Indexor for 3500 ticks
         if (currentX && !previousX) {
@@ -121,10 +133,16 @@ public class FourMotorTeleOp extends LinearOpMode {
             toggleShooter();
         }
         
+        // Handle B button - Toggle Trigger Servo
+        if (currentB && !previousB) {
+            toggleTriggerServo();
+        }
+        
         // Update previous button states
         previousX = currentX;
         previousA = currentA;
         previousY = currentY;
+        previousB = currentB;
     }
     
     private void runIndexorToPosition(int ticks) {
@@ -179,6 +197,22 @@ public class FourMotorTeleOp extends LinearOpMode {
         telemetry.update();
     }
     
+    private void toggleTriggerServo() {
+        // Check current position and toggle between 0 and 60 degrees
+        double currentPosition = triggerServo.getPosition();
+        
+        if (Math.abs(currentPosition - TRIGGER_SERVO_MIN_POSITION) < 0.1) {
+            // Currently at 0 degrees, move to 60 degrees
+            triggerServo.setPosition(TRIGGER_SERVO_MAX_POSITION);
+            telemetry.addData("Trigger Servo", "Moving to 60 degrees");
+        } else {
+            // Currently at 60 degrees (or somewhere else), move to 0 degrees
+            triggerServo.setPosition(TRIGGER_SERVO_MIN_POSITION);
+            telemetry.addData("Trigger Servo", "Moving to 0 degrees");
+        }
+        telemetry.update();
+    }
+    
     private void updateTelemetry() {
         // Display motor status
         telemetry.addData("Motor Status", "");
@@ -190,6 +224,8 @@ public class FourMotorTeleOp extends LinearOpMode {
         telemetry.addData("Shooter Power", "%.2f", shooter.getPower());
         telemetry.addData("Converyor Power", "%.2f", conveyor.getPower());
         telemetry.addData("Shooter Servo Power", "%.2f", shooterServo.getPower());
+        telemetry.addData("Trigger Servo Position", "%.3f (%.0f°)", 
+                         triggerServo.getPosition(), triggerServo.getPosition() * 180);
         
         // Display button instructions
         telemetry.addData("", "");
@@ -197,6 +233,7 @@ public class FourMotorTeleOp extends LinearOpMode {
         telemetry.addData("X Button", "Move Indexor 3500 ticks");
         telemetry.addData("A Button", "Toggle Intake + Converyor");
         telemetry.addData("Y Button", "Toggle Shooter + Shooter Servo");
+        telemetry.addData("B Button", "Toggle Trigger Servo (0-60°)");
         
         // Check if indexor is busy
         if (indexor.isBusy()) {
