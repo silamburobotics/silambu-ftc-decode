@@ -18,6 +18,12 @@ public class FourMotorTeleOp extends LinearOpMode {
     private DcMotorEx shooter;
     private DcMotorEx conveyor; // Fixed typo from "notor_converyor"
     
+    // Declare mecanum drive motors
+    private DcMotorEx frontLeftDrive;
+    private DcMotorEx frontRightDrive;
+    private DcMotorEx backLeftDrive;
+    private DcMotorEx backRightDrive;
+    
     // Declare servos
     private CRServo shooterServo;
     private Servo triggerServo;
@@ -45,9 +51,15 @@ public class FourMotorTeleOp extends LinearOpMode {
     public static final double TRIGGER_SERVO_MAX_POSITION = 0.333;    // 60 degrees (60/180 = 0.333)
     
     // Speed light control settings (using servo positions for LED control)
-    public static final double LIGHT_OFF_POSITION = 0.1;     // Servo position for light off
-    public static final double LIGHT_GREEN_POSITION = 0.9;   // Servo position for green light
+    public static final double LIGHT_OFF_POSITION = 0.0;     // Servo position for light off
+    public static final double LIGHT_GREEN_POSITION = 0.5;   // Servo position for green light
+    public static final double LIGHT_WHITE_POSITION = 1.0;   // Servo position for white light (if needed)
     public static final double SHOOTER_SPEED_THRESHOLD = 0.95; // 95% of target speed
+    
+    // Mecanum drive settings
+    public static final double DRIVE_SPEED_MULTIPLIER = 0.8;  // Max drive speed (0.0 to 1.0)
+    public static final double STRAFE_SPEED_MULTIPLIER = 0.8; // Max strafe speed (0.0 to 1.0)
+    public static final double TURN_SPEED_MULTIPLIER = 0.6;   // Max turn speed (0.0 to 1.0)
     
     // Shooter velocity control (ticks per second)
     public static double SHOOTER_TARGET_VELOCITY = 1600; // Range: 1200-1800 ticks/sec
@@ -63,6 +75,7 @@ public class FourMotorTeleOp extends LinearOpMode {
         telemetry.addData("Instructions", "A = Intake + Converyor");
         telemetry.addData("Instructions", "Y = Shooter");
         telemetry.addData("Instructions", "B = Trigger Servo (0-60°)");
+        telemetry.addData("Instructions", "Left Stick = Drive/Strafe, Right Stick X = Turn");
         telemetry.update();
         
         waitForStart();
@@ -70,6 +83,7 @@ public class FourMotorTeleOp extends LinearOpMode {
         // Run until the end of the match (driver presses STOP)
         while (opModeIsActive()) {
             handleControllerInputs();
+            handleMecanumDrive();
             updateSpeedLight();
             updateTelemetry();
             sleep(20); // Small delay to prevent excessive CPU usage
@@ -82,6 +96,12 @@ public class FourMotorTeleOp extends LinearOpMode {
         intake = hardwareMap.get(DcMotorEx.class, "intake");
         shooter = hardwareMap.get(DcMotorEx.class, "shooter");
         conveyor = hardwareMap.get(DcMotorEx.class, "conveyor");
+        
+        // Initialize mecanum drive motors
+        frontLeftDrive = hardwareMap.get(DcMotorEx.class, "frontLeftDrive");
+        frontRightDrive = hardwareMap.get(DcMotorEx.class, "frontRightDrive");
+        backLeftDrive = hardwareMap.get(DcMotorEx.class, "backLeftDrive");
+        backRightDrive = hardwareMap.get(DcMotorEx.class, "backRightDrive");
         
         // Initialize servos
         shooterServo = hardwareMap.get(CRServo.class, "shooterServo");
@@ -96,6 +116,12 @@ public class FourMotorTeleOp extends LinearOpMode {
         shooter.setDirection(DcMotor.Direction.REVERSE);
         conveyor.setDirection(DcMotor.Direction.REVERSE);
         
+        // Set mecanum drive motor directions
+        frontLeftDrive.setDirection(DcMotor.Direction.REVERSE);
+        frontRightDrive.setDirection(DcMotor.Direction.FORWARD);
+        backLeftDrive.setDirection(DcMotor.Direction.REVERSE);
+        backRightDrive.setDirection(DcMotor.Direction.FORWARD);
+        
         // Set servo directions
         shooterServo.setDirection(DcMotorSimple.Direction.REVERSE);
         triggerServo.setDirection(Servo.Direction.FORWARD);
@@ -105,6 +131,12 @@ public class FourMotorTeleOp extends LinearOpMode {
         indexor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         intake.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         conveyor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+        
+        // Set mecanum drive motor zero power behavior
+        frontLeftDrive.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+        frontRightDrive.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+        backLeftDrive.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+        backRightDrive.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         
         // Initialize servos to starting positions
         shooterServo.setPower(0);
@@ -119,6 +151,12 @@ public class FourMotorTeleOp extends LinearOpMode {
         shooter.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
         conveyor.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
         
+        // Set mecanum drive motors to run without encoders for teleop
+        frontLeftDrive.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
+        frontRightDrive.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
+        backLeftDrive.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
+        backRightDrive.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
+        
         // Set indexor to use encoder
         indexor.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
         
@@ -132,6 +170,21 @@ public class FourMotorTeleOp extends LinearOpMode {
         boolean currentA = gamepad1.a;
         boolean currentY = gamepad1.y;
         boolean currentB = gamepad1.b;
+        
+        // Manual light testing with dpad (for debugging)
+        if (gamepad1.dpad_up) {
+            speedLight.setPosition(LIGHT_GREEN_POSITION);
+            telemetry.addData("Manual Light Test", "GREEN position (%.2f)", LIGHT_GREEN_POSITION);
+        } else if (gamepad1.dpad_down) {
+            speedLight.setPosition(LIGHT_OFF_POSITION);
+            telemetry.addData("Manual Light Test", "OFF position (%.2f)", LIGHT_OFF_POSITION);
+        } else if (gamepad1.dpad_left) {
+            speedLight.setPosition(LIGHT_WHITE_POSITION);
+            telemetry.addData("Manual Light Test", "WHITE position (%.2f)", LIGHT_WHITE_POSITION);
+        } else if (gamepad1.dpad_right) {
+            speedLight.setPosition(0.75);
+            telemetry.addData("Manual Light Test", "Test position (0.75)");
+        }
         
         // Handle X button - Run Indexor for 3500 ticks
         if (currentX && !previousX) {
@@ -159,6 +212,41 @@ public class FourMotorTeleOp extends LinearOpMode {
         previousA = currentA;
         previousY = currentY;
         previousB = currentB;
+    }
+    
+    private void handleMecanumDrive() {
+        // Get joystick inputs
+        double drive = -gamepad1.left_stick_y;  // Forward/backward (negative because y-axis is inverted)
+        double strafe = gamepad1.left_stick_x;  // Left/right strafe
+        double turn = gamepad1.right_stick_x;   // Rotation
+        
+        // Apply speed multipliers
+        drive *= DRIVE_SPEED_MULTIPLIER;
+        strafe *= STRAFE_SPEED_MULTIPLIER;
+        turn *= TURN_SPEED_MULTIPLIER;
+        
+        // Calculate mecanum wheel powers
+        double frontLeftPower = drive + strafe + turn;
+        double frontRightPower = drive - strafe - turn;
+        double backLeftPower = drive - strafe + turn;
+        double backRightPower = drive + strafe - turn;
+        
+        // Normalize powers to ensure they don't exceed 1.0
+        double maxPower = Math.max(Math.max(Math.abs(frontLeftPower), Math.abs(frontRightPower)),
+                                  Math.max(Math.abs(backLeftPower), Math.abs(backRightPower)));
+        
+        if (maxPower > 1.0) {
+            frontLeftPower /= maxPower;
+            frontRightPower /= maxPower;
+            backLeftPower /= maxPower;
+            backRightPower /= maxPower;
+        }
+        
+        // Apply powers to motors
+        frontLeftDrive.setPower(frontLeftPower);
+        frontRightDrive.setPower(frontRightPower);
+        backLeftDrive.setPower(backLeftPower);
+        backRightDrive.setPower(backRightPower);
     }
     
     private void runIndexorToPosition(int ticks) {
@@ -240,12 +328,12 @@ public class FourMotorTeleOp extends LinearOpMode {
         double speedPercentage = targetVelocity > 0 ? currentVelocity / targetVelocity : 0;
         
         // Check if shooter is running and at 95% speed
-        if (currentVelocity > 50 && speedPercentage >= SHOOTER_SPEED_THRESHOLD) {
-            // Turn light green when at 95% or higher speed
+        if (currentVelocity > 50 && speedPercentage > SHOOTER_SPEED_THRESHOLD) {
+            // Turn light green when greater than 95% speed
             speedLight.setPosition(LIGHT_GREEN_POSITION);
         } else if (currentVelocity > 50) {
-            // Shooter is running but not at full speed - turn light off
-            speedLight.setPosition(LIGHT_OFF_POSITION);
+            // Shooter is running but not at full speed - set to white/intermediate position
+            speedLight.setPosition(LIGHT_WHITE_POSITION);
         } else {
             // Shooter is stopped - ensure light is off
             speedLight.setPosition(LIGHT_OFF_POSITION);
@@ -272,13 +360,24 @@ public class FourMotorTeleOp extends LinearOpMode {
         telemetry.addData("Shooter Speed", "%.1f%% (%.0f/%.0f)", 
                          speedPercentage, currentVelocity, SHOOTER_TARGET_VELOCITY);
         
-        if (currentVelocity > 50 && speedPercentage >= (SHOOTER_SPEED_THRESHOLD * 100)) {
-            telemetry.addData("Speed Light", "GREEN - Ready to shoot!");
+        // Enhanced speed light status with servo position
+        double lightPosition = speedLight.getPosition();
+        if (currentVelocity > 50 && speedPercentage > (SHOOTER_SPEED_THRESHOLD * 100)) {
+            telemetry.addData("Speed Light", "GREEN - Ready! (pos: %.2f)", lightPosition);
         } else if (currentVelocity > 50) {
-            telemetry.addData("Speed Light", "OFF - Spinning up... (%.1f%%)", speedPercentage);
+            telemetry.addData("Speed Light", "WHITE - Spinning up... (%.1f%%, pos: %.2f)", 
+                             speedPercentage, lightPosition);
         } else {
-            telemetry.addData("Speed Light", "OFF - Shooter stopped");
+            telemetry.addData("Speed Light", "OFF - Stopped (pos: %.2f)", lightPosition);
         }
+        
+        // Display drive motor status
+        telemetry.addData("", "");
+        telemetry.addData("Drive Motors", "");
+        telemetry.addData("Front Left", "%.2f", frontLeftDrive.getPower());
+        telemetry.addData("Front Right", "%.2f", frontRightDrive.getPower());
+        telemetry.addData("Back Left", "%.2f", backLeftDrive.getPower());
+        telemetry.addData("Back Right", "%.2f", backRightDrive.getPower());
         
         // Display button instructions
         telemetry.addData("", "");
@@ -287,6 +386,12 @@ public class FourMotorTeleOp extends LinearOpMode {
         telemetry.addData("A Button", "Toggle Intake + Converyor");
         telemetry.addData("Y Button", "Toggle Shooter + Shooter Servo");
         telemetry.addData("B Button", "Toggle Trigger Servo (0-60°)");
+        telemetry.addData("Left Stick", "Drive Forward/Back & Strafe Left/Right");
+        telemetry.addData("Right Stick X", "Turn Left/Right");
+        telemetry.addData("DPad Up", "Manual Green Light Test");
+        telemetry.addData("DPad Down", "Manual Light Off Test");
+        telemetry.addData("DPad Left", "Manual White Light Test");
+        telemetry.addData("DPad Right", "Manual Test Position");
         
         // Check if indexor is busy
         if (indexor.isBusy()) {
