@@ -1,10 +1,12 @@
 package org.firstinspires.ftc.teamcode;
 
+import com.acmerobotics.dashboard.config.Config;
 import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
 import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.DcMotorEx;
-
+import com.qualcomm.robotcore.hardware.DcMotorSimple;
+@Config
 @TeleOp(name = "Four Motor TeleOp", group = "TeleOp")
 public class FourMotorTeleOp extends LinearOpMode {
     
@@ -12,7 +14,7 @@ public class FourMotorTeleOp extends LinearOpMode {
     private DcMotorEx indexor;
     private DcMotorEx intake;
     private DcMotorEx shooter;
-    private DcMotorEx converyor; // Fixed typo from "notor_converyor"
+    private DcMotorEx conveyor; // Fixed typo from "notor_converyor"
     
     // Variables to track button states
     private boolean previousX = false;
@@ -20,13 +22,13 @@ public class FourMotorTeleOp extends LinearOpMode {
     private boolean previousY = false;
     
     // Motor power settings
-    private static final double INTAKE_POWER = 0.8;
-    private static final double SHOOTER_POWER = 1.0;
-    private static final double CONVERYOR_POWER = 0.7;
-    private static final int INDEXOR_TICKS = 3500;
+    public static final double INTAKE_POWER = 0.8;
+    public static final double SHOOTER_POWER = 1.0;
+    public static final double CONVEYOR_POWER = 1.0;
+    public static  int INDEXOR_TICKS = 3800;
     
     // Shooter velocity control (ticks per second)
-    private static final double SHOOTER_TARGET_VELOCITY = 1500; // Range: 1200-1800 ticks/sec
+    public static double SHOOTER_TARGET_VELOCITY = 1600; // Range: 1200-1800 ticks/sec
     
     @Override
     public void runOpMode() {
@@ -55,24 +57,24 @@ public class FourMotorTeleOp extends LinearOpMode {
         indexor = hardwareMap.get(DcMotorEx.class, "indexor");
         intake = hardwareMap.get(DcMotorEx.class, "intake");
         shooter = hardwareMap.get(DcMotorEx.class, "shooter");
-        converyor = hardwareMap.get(DcMotorEx.class, "converyor");
+        conveyor = hardwareMap.get(DcMotorEx.class, "conveyor");
         
         // Set motor directions (adjust as needed for your robot)
-        indexor.setDirection(DcMotor.Direction.FORWARD);
+        indexor.setDirection(DcMotor.Direction.REVERSE);
         intake.setDirection(DcMotor.Direction.FORWARD);
-        shooter.setDirection(DcMotor.Direction.FORWARD);
-        converyor.setDirection(DcMotor.Direction.FORWARD);
+        shooter.setDirection(DcMotor.Direction.REVERSE);
+        conveyor.setDirection(DcMotor.Direction.REVERSE);
         
         // Set zero power behavior
         indexor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         intake.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
-        converyor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+        conveyor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         
         // Reset encoders
         indexor.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
         intake.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
         shooter.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
-        converyor.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
+        conveyor.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
         
         // Set indexor to use encoder
         indexor.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
@@ -90,6 +92,7 @@ public class FourMotorTeleOp extends LinearOpMode {
         // Handle X button - Run Indexor for 3500 ticks
         if (currentX && !previousX) {
             runIndexorToPosition(INDEXOR_TICKS);
+            //toggleIntakeAndConveryor();
         }
         
         // Handle A button - Toggle Intake and Converyor
@@ -124,17 +127,17 @@ public class FourMotorTeleOp extends LinearOpMode {
     private void toggleIntakeAndConveryor() {
         // Check if either motor is running
         boolean isRunning = (Math.abs(intake.getPower()) > 0.1) || 
-                           (Math.abs(converyor.getPower()) > 0.1);
+                           (Math.abs(conveyor.getPower()) > 0.1);
         
         if (isRunning) {
             // Stop both motors
             intake.setPower(0);
-            converyor.setPower(0);
+            conveyor.setPower(0);
             telemetry.addData("Intake & Converyor", "STOPPED");
         } else {
             // Start both motors
             intake.setPower(INTAKE_POWER);
-            converyor.setPower(CONVERYOR_POWER);
+            conveyor.setPower(CONVEYOR_POWER);
             telemetry.addData("Intake & Converyor", "RUNNING");
         }
         telemetry.update();
@@ -165,7 +168,7 @@ public class FourMotorTeleOp extends LinearOpMode {
         telemetry.addData("Shooter Velocity", "%.0f / %.0f ticks/sec", 
                          shooter.getVelocity(), SHOOTER_TARGET_VELOCITY);
         telemetry.addData("Shooter Power", "%.2f", shooter.getPower());
-        telemetry.addData("Converyor Power", "%.2f", converyor.getPower());
+        telemetry.addData("Converyor Power", "%.2f", conveyor.getPower());
         
         // Display button instructions
         telemetry.addData("", "");
