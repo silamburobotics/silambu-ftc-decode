@@ -8,6 +8,7 @@ import com.qualcomm.robotcore.hardware.DcMotorEx;
 import com.qualcomm.robotcore.hardware.DcMotorSimple;
 import com.qualcomm.robotcore.hardware.CRServo;
 import com.qualcomm.robotcore.hardware.Servo;
+import com.qualcomm.robotcore.hardware.PwmControl;
 @Config
 @TeleOp(name = "Four Motor TeleOp", group = "TeleOp")
 public class FourMotorTeleOp extends LinearOpMode {
@@ -21,6 +22,9 @@ public class FourMotorTeleOp extends LinearOpMode {
     // Declare servos
     private CRServo shooterServo;
     private Servo triggerServo;
+    
+    // Declare PWM control light
+    private PwmControl speedLight;
     
     // Variables to track button states
     private boolean previousX = false;
@@ -40,6 +44,11 @@ public class FourMotorTeleOp extends LinearOpMode {
     // Trigger servo position settings (0.0 = 0 degrees, 1.0 = 180 degrees)
     public static final double TRIGGER_SERVO_MIN_POSITION = 0.0;      // 0 degrees
     public static final double TRIGGER_SERVO_MAX_POSITION = 0.333;    // 60 degrees (60/180 = 0.333)
+    
+    // PWM light control settings
+    public static final double LIGHT_OFF_PWM = 1000;    // PWM value for light off (microseconds)
+    public static final double LIGHT_GREEN_PWM = 1500;  // PWM value for green light (microseconds)
+    public static final double SHOOTER_SPEED_THRESHOLD = 0.95; // 95% of target speed
     
     // Shooter velocity control (ticks per second)
     public static double SHOOTER_TARGET_VELOCITY = 1600; // Range: 1200-1800 ticks/sec
@@ -62,6 +71,7 @@ public class FourMotorTeleOp extends LinearOpMode {
         // Run until the end of the match (driver presses STOP)
         while (opModeIsActive()) {
             handleControllerInputs();
+            updateSpeedLight();
             updateTelemetry();
             sleep(20); // Small delay to prevent excessive CPU usage
         }
@@ -77,6 +87,9 @@ public class FourMotorTeleOp extends LinearOpMode {
         // Initialize servos
         shooterServo = hardwareMap.get(CRServo.class, "shooterServo");
         triggerServo = hardwareMap.get(Servo.class, "triggerServo");
+        
+        // Initialize PWM control light
+        speedLight = hardwareMap.get(PwmControl.class, "speedLight");
         
         // Set motor directions (adjust as needed for your robot)
         indexor.setDirection(DcMotor.Direction.REVERSE);
@@ -96,6 +109,10 @@ public class FourMotorTeleOp extends LinearOpMode {
         // Initialize servos to starting positions
         shooterServo.setPower(0);
         triggerServo.setPosition(TRIGGER_SERVO_MIN_POSITION); // Start at 0 degrees
+        
+        // Initialize PWM light to off
+        speedLight.setPwmRange(new PwmControl.PwmRange(1000, 2000)); // Set PWM range
+        speedLight.setPwmDisable(); // Start with light off
         
         // Reset encoders
         indexor.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
@@ -182,17 +199,21 @@ public class FourMotorTeleOp extends LinearOpMode {
         boolean isRunning = Math.abs(shooter.getVelocity()) > 50; // Check velocity instead of power
         
         if (isRunning) {
-            // Stop shooter and continue servo
+            // Stop shooter and shooter servo
             shooter.setVelocity(0);
             shooterServo.setPower(0);
+            // Turn off speed light when shooter stops
+            speedLight.setPwmDisable();
             telemetry.addData("Shooter", "STOPPED");
             telemetry.addData("Shooter Servo", "STOPPED");
+            telemetry.addData("Speed Light", "OFF");
         } else {
-            // Start shooter with target velocity and continue servo
+            // Start shooter with target velocity and shooter servo
             shooter.setVelocity(SHOOTER_TARGET_VELOCITY);
             shooterServo.setPower(SHOOTER_SERVO_POWER);
             telemetry.addData("Shooter", "RUNNING at %.0f ticks/sec", SHOOTER_TARGET_VELOCITY);
             telemetry.addData("Shooter Servo", "RUNNING at %.2f power", SHOOTER_SERVO_POWER);
+            telemetry.addData("Speed Light", "Monitoring speed...");
         }
         telemetry.update();
     }
@@ -213,6 +234,26 @@ public class FourMotorTeleOp extends LinearOpMode {
         telemetry.update();
     }
     
+    private void updateSpeedLight() {
+        // Get current shooter velocity and target
+        double currentVelocity = Math.abs(shooter.getVelocity());
+        double targetVelocity = SHOOTER_TARGET_VELOCITY;
+        double speedPercentage = targetVelocity > 0 ? currentVelocity / targetVelocity : 0;
+        
+        // Check if shooter is running and at 95% speed
+        if (currentVelocity > 50 && speedPercentage >= SHOOTER_SPEED_THRESHOLD) {
+            // Turn light green when at 95% or higher speed
+            speedLight.setPwmEnable();
+            speedLight.setPwmPosition(LIGHT_GREEN_PWM);
+        } else if (currentVelocity > 50) {
+            // Shooter is running but not at full speed - turn light off
+            speedLight.setPwmDisable();
+        } else {
+            // Shooter is stopped - ensure light is off
+            speedLight.setPwmDisable();
+        }
+    }
+    
     private void updateTelemetry() {
         // Display motor status
         telemetry.addData("Motor Status", "");
@@ -226,6 +267,20 @@ public class FourMotorTeleOp extends LinearOpMode {
         telemetry.addData("Shooter Servo Power", "%.2f", shooterServo.getPower());
         telemetry.addData("Trigger Servo Position", "%.3f (%.0f°)", 
                          triggerServo.getPosition(), triggerServo.getPosition() * 180);
+        
+        // Display speed light status
+        double currentVelocity = Math.abs(shooter.getVelocity());
+        double speedPercentage = SHOOTER_TARGET_VELOCITY > 0 ? (currentVelocity / SHOOTER_TARGET_VELOCITY) * 100 : 0;
+        telemetry.addData("Shooter Speed", "%.1f%% (%.0f/%.0f)", 
+                         speedPercentage, currentVelocity, SHOOTER_TARGET_VELOCITY);
+        
+        if (currentVelocity > 50 && speedPercentage >= (SHOOTER_SPEED_THRESHOLD * 100)) {
+            telemetry.addData("Speed Light", "GREEN - Ready to shoot!");
+        } else if (currentVelocity > 50) {
+            telemetry.addData("Speed Light", "OFF - Spinning up... (%.1f%%)", speedPercentage);
+        } else {
+            telemetry.addData("Speed Light", "OFF - Shooter stopped");
+        }
         
         // Display button instructions
         telemetry.addData("", "");
