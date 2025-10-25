@@ -76,7 +76,7 @@ public class FourMotorTeleOp extends LinearOpMode {
         conveyor.setDirection(DcMotor.Direction.REVERSE);
         
         // Set servo direction
-        shooterServo.setDirection(DcMotorSimple.Direction.FORWARD);
+        shooterServo.setDirection(DcMotorSimple.Direction.REVERSE);
         
         // Set zero power behavior
         indexor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
