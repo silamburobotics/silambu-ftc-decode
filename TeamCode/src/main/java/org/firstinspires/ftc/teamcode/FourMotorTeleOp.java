@@ -8,7 +8,6 @@ import com.qualcomm.robotcore.hardware.DcMotorEx;
 import com.qualcomm.robotcore.hardware.DcMotorSimple;
 import com.qualcomm.robotcore.hardware.CRServo;
 import com.qualcomm.robotcore.hardware.Servo;
-import com.qualcomm.robotcore.hardware.PwmControl;
 @Config
 @TeleOp(name = "Four Motor TeleOp", group = "TeleOp")
 public class FourMotorTeleOp extends LinearOpMode {
@@ -23,8 +22,8 @@ public class FourMotorTeleOp extends LinearOpMode {
     private CRServo shooterServo;
     private Servo triggerServo;
     
-    // Declare PWM control light
-    private PwmControl speedLight;
+    // Declare speed indicator light (using servo for PWM control)
+    private Servo speedLight;
     
     // Variables to track button states
     private boolean previousX = false;
@@ -45,9 +44,9 @@ public class FourMotorTeleOp extends LinearOpMode {
     public static final double TRIGGER_SERVO_MIN_POSITION = 0.0;      // 0 degrees
     public static final double TRIGGER_SERVO_MAX_POSITION = 0.333;    // 60 degrees (60/180 = 0.333)
     
-    // PWM light control settings
-    public static final double LIGHT_OFF_PWM = 1000;    // PWM value for light off (microseconds)
-    public static final double LIGHT_GREEN_PWM = 1500;  // PWM value for green light (microseconds)
+    // Speed light control settings (using servo positions for LED control)
+    public static final double LIGHT_OFF_POSITION = 0.1;     // Servo position for light off
+    public static final double LIGHT_GREEN_POSITION = 0.9;   // Servo position for green light
     public static final double SHOOTER_SPEED_THRESHOLD = 0.95; // 95% of target speed
     
     // Shooter velocity control (ticks per second)
@@ -88,8 +87,8 @@ public class FourMotorTeleOp extends LinearOpMode {
         shooterServo = hardwareMap.get(CRServo.class, "shooterServo");
         triggerServo = hardwareMap.get(Servo.class, "triggerServo");
         
-        // Initialize PWM control light
-        speedLight = hardwareMap.get(PwmControl.class, "speedLight");
+        // Initialize speed indicator light (using servo)
+        speedLight = hardwareMap.get(Servo.class, "speedLight");
         
         // Set motor directions (adjust as needed for your robot)
         indexor.setDirection(DcMotor.Direction.REVERSE);
@@ -100,6 +99,7 @@ public class FourMotorTeleOp extends LinearOpMode {
         // Set servo directions
         shooterServo.setDirection(DcMotorSimple.Direction.REVERSE);
         triggerServo.setDirection(Servo.Direction.FORWARD);
+        speedLight.setDirection(Servo.Direction.FORWARD);
         
         // Set zero power behavior
         indexor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
@@ -110,9 +110,8 @@ public class FourMotorTeleOp extends LinearOpMode {
         shooterServo.setPower(0);
         triggerServo.setPosition(TRIGGER_SERVO_MIN_POSITION); // Start at 0 degrees
         
-        // Initialize PWM light to off
-        speedLight.setPwmRange(new PwmControl.PwmRange(1000, 2000)); // Set PWM range
-        speedLight.setPwmDisable(); // Start with light off
+        // Initialize speed light to off
+        speedLight.setPosition(LIGHT_OFF_POSITION); // Start with light off
         
         // Reset encoders
         indexor.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
@@ -203,7 +202,7 @@ public class FourMotorTeleOp extends LinearOpMode {
             shooter.setVelocity(0);
             shooterServo.setPower(0);
             // Turn off speed light when shooter stops
-            speedLight.setPwmDisable();
+            speedLight.setPosition(LIGHT_OFF_POSITION);
             telemetry.addData("Shooter", "STOPPED");
             telemetry.addData("Shooter Servo", "STOPPED");
             telemetry.addData("Speed Light", "OFF");
@@ -243,14 +242,13 @@ public class FourMotorTeleOp extends LinearOpMode {
         // Check if shooter is running and at 95% speed
         if (currentVelocity > 50 && speedPercentage >= SHOOTER_SPEED_THRESHOLD) {
             // Turn light green when at 95% or higher speed
-            speedLight.setPwmEnable();
-            speedLight.setPwmPosition(LIGHT_GREEN_PWM);
+            speedLight.setPosition(LIGHT_GREEN_POSITION);
         } else if (currentVelocity > 50) {
             // Shooter is running but not at full speed - turn light off
-            speedLight.setPwmDisable();
+            speedLight.setPosition(LIGHT_OFF_POSITION);
         } else {
             // Shooter is stopped - ensure light is off
-            speedLight.setPwmDisable();
+            speedLight.setPosition(LIGHT_OFF_POSITION);
         }
     }
     
