@@ -6,6 +6,7 @@ import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
 import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.DcMotorEx;
 import com.qualcomm.robotcore.hardware.DcMotorSimple;
+import com.qualcomm.robotcore.hardware.CRServo;
 @Config
 @TeleOp(name = "Four Motor TeleOp", group = "TeleOp")
 public class FourMotorTeleOp extends LinearOpMode {
@@ -15,6 +16,9 @@ public class FourMotorTeleOp extends LinearOpMode {
     private DcMotorEx intake;
     private DcMotorEx shooter;
     private DcMotorEx conveyor; // Fixed typo from "notor_converyor"
+    
+    // Declare servo
+    private CRServo shooterServo;
     
     // Variables to track button states
     private boolean previousX = false;
@@ -26,6 +30,9 @@ public class FourMotorTeleOp extends LinearOpMode {
     public static final double SHOOTER_POWER = 1.0;
     public static final double CONVEYOR_POWER = 1.0;
     public static  int INDEXOR_TICKS = 3800;
+    
+    // Servo power settings
+    public static final double SHOOTER_SERVO_POWER = 1.0;
     
     // Shooter velocity control (ticks per second)
     public static double SHOOTER_TARGET_VELOCITY = 1600; // Range: 1200-1800 ticks/sec
@@ -59,16 +66,25 @@ public class FourMotorTeleOp extends LinearOpMode {
         shooter = hardwareMap.get(DcMotorEx.class, "shooter");
         conveyor = hardwareMap.get(DcMotorEx.class, "conveyor");
         
+        // Initialize servo
+        shooterServo = hardwareMap.get(CRServo.class, "shooterServo");
+        
         // Set motor directions (adjust as needed for your robot)
         indexor.setDirection(DcMotor.Direction.REVERSE);
         intake.setDirection(DcMotor.Direction.FORWARD);
         shooter.setDirection(DcMotor.Direction.REVERSE);
         conveyor.setDirection(DcMotor.Direction.REVERSE);
         
+        // Set servo direction
+        shooterServo.setDirection(DcMotorSimple.Direction.FORWARD);
+        
         // Set zero power behavior
         indexor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         intake.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         conveyor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+        
+        // Initialize servo to stopped
+        shooterServo.setPower(0);
         
         // Reset encoders
         indexor.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
@@ -148,13 +164,17 @@ public class FourMotorTeleOp extends LinearOpMode {
         boolean isRunning = Math.abs(shooter.getVelocity()) > 50; // Check velocity instead of power
         
         if (isRunning) {
-            // Stop shooter
+            // Stop shooter and continue servo
             shooter.setVelocity(0);
+            shooterServo.setPower(0);
             telemetry.addData("Shooter", "STOPPED");
+            telemetry.addData("Shooter Servo", "STOPPED");
         } else {
-            // Start shooter with target velocity
+            // Start shooter with target velocity and continue servo
             shooter.setVelocity(SHOOTER_TARGET_VELOCITY);
+            shooterServo.setPower(SHOOTER_SERVO_POWER);
             telemetry.addData("Shooter", "RUNNING at %.0f ticks/sec", SHOOTER_TARGET_VELOCITY);
+            telemetry.addData("Shooter Servo", "RUNNING at %.2f power", SHOOTER_SERVO_POWER);
         }
         telemetry.update();
     }
@@ -169,13 +189,14 @@ public class FourMotorTeleOp extends LinearOpMode {
                          shooter.getVelocity(), SHOOTER_TARGET_VELOCITY);
         telemetry.addData("Shooter Power", "%.2f", shooter.getPower());
         telemetry.addData("Converyor Power", "%.2f", conveyor.getPower());
+        telemetry.addData("Shooter Servo Power", "%.2f", shooterServo.getPower());
         
         // Display button instructions
         telemetry.addData("", "");
         telemetry.addData("Controls", "");
         telemetry.addData("X Button", "Move Indexor 3500 ticks");
         telemetry.addData("A Button", "Toggle Intake + Converyor");
-        telemetry.addData("Y Button", "Toggle Shooter");
+        telemetry.addData("Y Button", "Toggle Shooter + Shooter Servo");
         
         // Check if indexor is busy
         if (indexor.isBusy()) {
