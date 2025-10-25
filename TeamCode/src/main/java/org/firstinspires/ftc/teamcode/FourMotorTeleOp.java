@@ -19,10 +19,10 @@ public class FourMotorTeleOp extends LinearOpMode {
     private DcMotorEx conveyor; // Fixed typo from "notor_converyor"
     
     // Declare mecanum drive motors
-    private DcMotorEx frontLeftDrive;
-    private DcMotorEx frontRightDrive;
-    private DcMotorEx backLeftDrive;
-    private DcMotorEx backRightDrive;
+    private DcMotorEx leftFront;
+    private DcMotorEx rightFront;
+    private DcMotorEx leftBack;
+    private DcMotorEx rightBack;
     
     // Declare servos
     private CRServo shooterServo;
@@ -98,10 +98,10 @@ public class FourMotorTeleOp extends LinearOpMode {
         conveyor = hardwareMap.get(DcMotorEx.class, "conveyor");
         
         // Initialize mecanum drive motors
-        frontLeftDrive = hardwareMap.get(DcMotorEx.class, "frontLeftDrive");
-        frontRightDrive = hardwareMap.get(DcMotorEx.class, "frontRightDrive");
-        backLeftDrive = hardwareMap.get(DcMotorEx.class, "backLeftDrive");
-        backRightDrive = hardwareMap.get(DcMotorEx.class, "backRightDrive");
+        leftFront = hardwareMap.get(DcMotorEx.class, "leftFront");
+        rightFront = hardwareMap.get(DcMotorEx.class, "rightFront");
+        leftBack = hardwareMap.get(DcMotorEx.class, "leftBack");
+        rightBack = hardwareMap.get(DcMotorEx.class, "rightBack");
         
         // Initialize servos
         shooterServo = hardwareMap.get(CRServo.class, "shooterServo");
@@ -117,10 +117,10 @@ public class FourMotorTeleOp extends LinearOpMode {
         conveyor.setDirection(DcMotor.Direction.REVERSE);
         
         // Set mecanum drive motor directions
-        frontLeftDrive.setDirection(DcMotor.Direction.REVERSE);
-        frontRightDrive.setDirection(DcMotor.Direction.FORWARD);
-        backLeftDrive.setDirection(DcMotor.Direction.REVERSE);
-        backRightDrive.setDirection(DcMotor.Direction.FORWARD);
+        leftFront.setDirection(DcMotor.Direction.REVERSE);
+        rightFront.setDirection(DcMotor.Direction.FORWARD);
+        leftBack.setDirection(DcMotor.Direction.REVERSE);
+        rightBack.setDirection(DcMotor.Direction.FORWARD);
         
         // Set servo directions
         shooterServo.setDirection(DcMotorSimple.Direction.REVERSE);
@@ -133,10 +133,10 @@ public class FourMotorTeleOp extends LinearOpMode {
         conveyor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         
         // Set mecanum drive motor zero power behavior
-        frontLeftDrive.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
-        frontRightDrive.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
-        backLeftDrive.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
-        backRightDrive.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+        leftFront.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+        rightFront.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+        leftBack.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+        rightBack.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         
         // Initialize servos to starting positions
         shooterServo.setPower(0);
@@ -152,10 +152,10 @@ public class FourMotorTeleOp extends LinearOpMode {
         conveyor.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
         
         // Set mecanum drive motors to run without encoders for teleop
-        frontLeftDrive.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
-        frontRightDrive.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
-        backLeftDrive.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
-        backRightDrive.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
+        leftFront.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
+        rightFront.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
+        leftBack.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
+        rightBack.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
         
         // Set indexor to use encoder
         indexor.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
@@ -243,10 +243,10 @@ public class FourMotorTeleOp extends LinearOpMode {
         }
         
         // Apply powers to motors
-        frontLeftDrive.setPower(frontLeftPower);
-        frontRightDrive.setPower(frontRightPower);
-        backLeftDrive.setPower(backLeftPower);
-        backRightDrive.setPower(backRightPower);
+        leftFront.setPower(frontLeftPower);
+        rightFront.setPower(frontRightPower);
+        leftBack.setPower(backLeftPower);
+        rightBack.setPower(backRightPower);
     }
     
     private void runIndexorToPosition(int ticks) {
@@ -374,10 +374,10 @@ public class FourMotorTeleOp extends LinearOpMode {
         // Display drive motor status
         telemetry.addData("", "");
         telemetry.addData("Drive Motors", "");
-        telemetry.addData("Front Left", "%.2f", frontLeftDrive.getPower());
-        telemetry.addData("Front Right", "%.2f", frontRightDrive.getPower());
-        telemetry.addData("Back Left", "%.2f", backLeftDrive.getPower());
-        telemetry.addData("Back Right", "%.2f", backRightDrive.getPower());
+        telemetry.addData("Left Front", "%.2f", leftFront.getPower());
+        telemetry.addData("Right Front", "%.2f", rightFront.getPower());
+        telemetry.addData("Left Back", "%.2f", leftBack.getPower());
+        telemetry.addData("Right Back", "%.2f", rightBack.getPower());
         
         // Display button instructions
         telemetry.addData("", "");
