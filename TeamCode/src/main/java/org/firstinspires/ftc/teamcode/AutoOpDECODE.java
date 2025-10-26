@@ -243,7 +243,7 @@ public class AutoOpDECODE extends LinearOpMode {
         
         // Initialize servos to starting positions
         shooterServo.setPower(0);
-        triggerServo.setPosition(TRIGGER_FIRE);
+        triggerServo.setPosition(TRIGGER_HOME);
         speedLight.setPosition(LIGHT_OFF_POSITION);
         
         // Reset encoders for precise movement
@@ -582,12 +582,12 @@ public class AutoOpDECODE extends LinearOpMode {
             
         } else if (sequenceTime < 1.0) {
             // Fire trigger servo
-            triggerServo.setPosition(TRIGGER_HOME);
+            triggerServo.setPosition(TRIGGER_FIRE);
             telemetry.addData("Trigger", "SHOT %d FIRED!", shotsFired + 1);
             
         } else if (sequenceTime < 1.5) {
             // Reset trigger servo
-            triggerServo.setPosition(TRIGGER_FIRE);
+            triggerServo.setPosition(TRIGGER_HOME);
             
         } else {
             // Complete single shot, increment counter

@@ -176,7 +176,7 @@ public class TeleOpDECODE extends LinearOpMode {
         
         // Initialize servos to starting positions
         shooterServo.setPower(0);
-        triggerServo.setPosition(TRIGGER_FIRE); // Start at 60 degrees
+        triggerServo.setPosition(TRIGGER_HOME); // Start at 120 degrees
         
         // Initialize speed light to off
         speedLight.setPosition(LIGHT_OFF_POSITION); // Start with light off
@@ -455,17 +455,17 @@ public class TeleOpDECODE extends LinearOpMode {
         // Check current position and toggle between 60 and 120 degrees
         double currentPosition = triggerServo.getPosition();
         
-        if (Math.abs(currentPosition - TRIGGER_FIRE) < 0.1) {
-            // Currently at 60 degrees, move to 120 degrees
-            triggerServo.setPosition(TRIGGER_HOME);
-            telemetry.addData("Trigger Servo", "FIRING! Moving to 120 degrees");
+        if (Math.abs(currentPosition - TRIGGER_HOME) < 0.1) {
+            // Currently at 120 degrees (home), move to 60 degrees (fire)
+            triggerServo.setPosition(TRIGGER_FIRE);
+            telemetry.addData("Trigger Servo", "FIRING! Moving to 60 degrees");
             if (isAlignedToTag) {
                 telemetry.addData("AprilTag", "Aligned and fired!");
             }
         } else {
-            // Currently at 120 degrees (or somewhere else), move to 60 degrees
-            triggerServo.setPosition(TRIGGER_FIRE);
-            telemetry.addData("Trigger Servo", "Resetting to 60 degrees");
+            // Currently at 60 degrees (or somewhere else), move to 120 degrees (home)
+            triggerServo.setPosition(TRIGGER_HOME);
+            telemetry.addData("Trigger Servo", "Returning to home (120 degrees)");
         }
         telemetry.update();
     }
