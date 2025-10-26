@@ -9,8 +9,8 @@ import com.qualcomm.robotcore.hardware.DcMotorSimple;
 import com.qualcomm.robotcore.hardware.CRServo;
 import com.qualcomm.robotcore.hardware.Servo;
 @Config
-@TeleOp(name = "Four Motor TeleOp", group = "TeleOp")
-public class FourMotorTeleOp extends LinearOpMode {
+@TeleOp(name = "TeleOpDECODE", group = "TeleOp")
+public class TeleOpDECODE extends LinearOpMode {
     
     // Declare motors
     private DcMotorEx indexor;
