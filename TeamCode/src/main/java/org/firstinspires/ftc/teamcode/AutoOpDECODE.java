@@ -70,8 +70,8 @@ public class AutoOpDECODE extends LinearOpMode {
     
     // Servo settings - same as TeleOp
     public static final double SHOOTER_SERVO_POWER = 1.0;
-    public static final double TRIGGER_SERVO_MIN_POSITION = 0.222;    // 40 degrees (40/180 = 0.222)
-    public static final double TRIGGER_SERVO_MAX_POSITION = 0.639;    // 115 degrees (115/180 = 0.639)
+    public static final double TRIGGER_FIRE = 0.333;    // 60 degrees (60/180 = 0.333)
+    public static final double TRIGGER_HOME = 0.667;    // 120 degrees (120/180 = 0.667)
     public static final double LIGHT_OFF_POSITION = 0.0;
     public static final double LIGHT_GREEN_POSITION = 0.5;
     
@@ -243,7 +243,7 @@ public class AutoOpDECODE extends LinearOpMode {
         
         // Initialize servos to starting positions
         shooterServo.setPower(0);
-        triggerServo.setPosition(TRIGGER_SERVO_MIN_POSITION);
+        triggerServo.setPosition(TRIGGER_FIRE);
         speedLight.setPosition(LIGHT_OFF_POSITION);
         
         // Reset encoders for precise movement
@@ -428,7 +428,7 @@ public class AutoOpDECODE extends LinearOpMode {
             int currentPosition = indexor.getCurrentPosition();
             indexor.setTargetPosition(currentPosition + INDEXOR_TICKS);
             indexor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
-            indexor.setPower(0.8);
+            indexor.setPower(0.3);
             
             stageTimer.reset();
         }
@@ -578,16 +578,16 @@ public class AutoOpDECODE extends LinearOpMode {
             int currentPosition = indexor.getCurrentPosition();
             indexor.setTargetPosition(currentPosition + INDEXOR_TICKS);
             indexor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
-            indexor.setPower(0.8);
+            indexor.setPower(0.3);
             
         } else if (sequenceTime < 1.0) {
             // Fire trigger servo
-            triggerServo.setPosition(TRIGGER_SERVO_MAX_POSITION);
+            triggerServo.setPosition(TRIGGER_HOME);
             telemetry.addData("Trigger", "SHOT %d FIRED!", shotsFired + 1);
             
         } else if (sequenceTime < 1.5) {
             // Reset trigger servo
-            triggerServo.setPosition(TRIGGER_SERVO_MIN_POSITION);
+            triggerServo.setPosition(TRIGGER_FIRE);
             
         } else {
             // Complete single shot, increment counter
