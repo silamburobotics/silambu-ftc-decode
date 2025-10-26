@@ -8,6 +8,17 @@ import com.qualcomm.robotcore.hardware.DcMotorEx;
 import com.qualcomm.robotcore.hardware.DcMotorSimple;
 import com.qualcomm.robotcore.hardware.CRServo;
 import com.qualcomm.robotcore.hardware.Servo;
+
+import org.firstinspires.ftc.robotcore.external.hardware.camera.WebcamName;
+import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
+import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
+import org.firstinspires.ftc.vision.VisionPortal;
+import org.firstinspires.ftc.vision.apriltag.AprilTagDetection;
+import org.firstinspires.ftc.vision.apriltag.AprilTagProcessor;
+import org.firstinspires.ftc.vision.apriltag.AprilTagGameDatabase;
+
+import android.util.Size;
+import java.util.List;
 @Config
 @TeleOp(name = "TeleOpDECODE", group = "TeleOp")
 public class TeleOpDECODE extends LinearOpMode {
@@ -31,11 +42,16 @@ public class TeleOpDECODE extends LinearOpMode {
     // Declare speed indicator light (using servo for PWM control)
     private Servo speedLight;
     
+    // AprilTag detection
+    private VisionPortal visionPortal;
+    private AprilTagProcessor aprilTag;
+    
     // Variables to track button states
     private boolean previousX = false;
     private boolean previousA = false;
     private boolean previousY = false;
     private boolean previousB = false;
+    private boolean isAlignedToTag = false; // Track if robot is aligned to AprilTag
     
     // Motor power settings
     public static final double INTAKE_POWER = 0.8;
@@ -64,18 +80,28 @@ public class TeleOpDECODE extends LinearOpMode {
     // Shooter velocity control (ticks per second)
     public static double SHOOTER_TARGET_VELOCITY = 1600; // Range: 1200-1800 ticks/sec
     
+    // AprilTag alignment settings
+    public static final int TARGET_TAG_ID = 20; // Blue AprilTag ID
+    public static final double ALIGNMENT_TOLERANCE = 5.0; // pixels
+    public static final double ALIGNMENT_POWER = 0.3; // Power for alignment movements
+    public static final double MIN_TAG_AREA = 100.0; // Minimum tag area for reliable detection
+    
     @Override
     public void runOpMode() {
         // Initialize motors
         initializeMotors();
+        
+        // Initialize AprilTag detection
+        initializeAprilTag();
         
         // Wait for the game to start (driver presses PLAY)
         telemetry.addData("Status", "Initialized");
         telemetry.addData("Instructions", "X = Indexor (120 degrees)");
         telemetry.addData("Instructions", "A = Intake + Converyor");
         telemetry.addData("Instructions", "Y = Shooter");
-        telemetry.addData("Instructions", "B = Trigger Servo (0-60°)");
+        telemetry.addData("Instructions", "B = Trigger Servo (0-60°) + AprilTag Align");
         telemetry.addData("Instructions", "Left Stick = Drive/Strafe, Right Stick X = Turn");
+        telemetry.addData("AprilTag", "Looking for Blue ID %d", TARGET_TAG_ID);
         telemetry.update();
         
         waitForStart();
@@ -84,6 +110,7 @@ public class TeleOpDECODE extends LinearOpMode {
         while (opModeIsActive()) {
             handleControllerInputs();
             handleMecanumDrive();
+            handleAprilTagAlignment();
             checkIndexorCompletion();
             updateSpeedLight();
             updateTelemetry();
@@ -163,6 +190,105 @@ public class TeleOpDECODE extends LinearOpMode {
         
         // Set shooter to use velocity control
         shooter.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+    }
+    
+    private void initializeAprilTag() {
+        // Create the AprilTag processor
+        aprilTag = new AprilTagProcessor.Builder()
+                .setTagFamily(AprilTagGameDatabase.TagFamily.TAG_36h11)
+                .setTagLibrary(AprilTagGameDatabase.getCenterStageTagLibrary())
+                .setOutputUnits(DistanceUnit.INCH, AngleUnit.DEGREES)
+                .build();
+
+        // Create the vision portal
+        VisionPortal.Builder builder = new VisionPortal.Builder();
+        
+        // Set the camera
+        builder.setCamera(hardwareMap.get(WebcamName.class, "Webcam 1"));
+        
+        // Choose a camera resolution
+        builder.setCameraResolution(new Size(640, 480));
+        
+        // Enable the RC preview (LiveView)
+        builder.enableLiveView(true);
+        
+        // Set and enable the processor
+        builder.addProcessor(aprilTag);
+        
+        // Build the Vision Portal
+        visionPortal = builder.build();
+        
+        telemetry.addData("AprilTag Vision", "Initialized - Looking for Blue Tag ID %d", TARGET_TAG_ID);
+        telemetry.update();
+    }
+    
+    private void handleAprilTagAlignment() {
+        List<AprilTagDetection> currentDetections = aprilTag.getDetections();
+        
+        // Reset alignment status
+        isAlignedToTag = false;
+        
+        // Look for the target tag
+        for (AprilTagDetection detection : currentDetections) {
+            if (detection.metadata != null && detection.id == TARGET_TAG_ID) {
+                // Found the target blue tag!
+                double xOffset = detection.ftcPose.x;
+                double yOffset = detection.ftcPose.y;
+                double headingError = detection.ftcPose.yaw;
+                
+                // Check if we're aligned within tolerance
+                boolean xAligned = Math.abs(xOffset) < ALIGNMENT_TOLERANCE;
+                boolean yAligned = Math.abs(yOffset) < ALIGNMENT_TOLERANCE;
+                boolean headingAligned = Math.abs(headingError) < HEADING_TOLERANCE;
+                
+                isAlignedToTag = xAligned && yAligned && headingAligned;
+                
+                // Provide alignment feedback
+                telemetry.addData("AprilTag", "FOUND Blue Tag ID %d", TARGET_TAG_ID);
+                telemetry.addData("Position", "X: %.1f, Y: %.1f", xOffset, yOffset);
+                telemetry.addData("Heading Error", "%.1f degrees", headingError);
+                telemetry.addData("Alignment Status", 
+                    "X: %s, Y: %s, Heading: %s", 
+                    xAligned ? "✓" : "✗", 
+                    yAligned ? "✓" : "✗", 
+                    headingAligned ? "✓" : "✗");
+                
+                if (isAlignedToTag) {
+                    telemetry.addData("READY TO FIRE", "Trigger servo enabled!");
+                } else {
+                    telemetry.addData("Status", "Adjusting alignment...");
+                    // Optional: Add automatic alignment control here
+                    // You could use the offset values to automatically adjust robot position
+                }
+                
+                return; // Found our tag, no need to check others
+            }
+        }
+        
+        // If we get here, the target tag wasn't found
+        telemetry.addData("AprilTag", "Searching for Blue Tag ID %d...", TARGET_TAG_ID);
+        telemetry.addData("Tags Detected", "%d total", currentDetections.size());
+        
+        // List any tags we can see
+        for (AprilTagDetection detection : currentDetections) {
+            if (detection.metadata != null) {
+                telemetry.addData("Detected Tag", "ID %d at distance %.1f inches", 
+                    detection.id, detection.ftcPose.range);
+            }
+        }
+    }
+        // Create the AprilTag processor
+        aprilTag = new AprilTagProcessor.Builder()
+                .setTagFamily(AprilTagProcessor.TagFamily.TAG_36h11)
+                .setTagLibrary(AprilTagGameDatabase.getCenterStageTagLibrary())
+                .setOutputUnits(DistanceUnit.INCH, AngleUnit.DEGREES)
+                .build();
+        
+        // Create the vision portal
+        visionPortal = new VisionPortal.Builder()
+                .setCamera(hardwareMap.get(WebcamName.class, "Webcam 1"))
+                .addProcessor(aprilTag)
+                .build();
     }
     
     private void handleControllerInputs() {
@@ -323,17 +449,26 @@ public class TeleOpDECODE extends LinearOpMode {
     }
     
     private void toggleTriggerServo() {
+        // First check for AprilTag alignment before triggering
+        if (!isAlignedToTag) {
+            telemetry.addData("Trigger Servo", "Aligning to AprilTag first...");
+            telemetry.addData("Status", "Looking for Blue Tag ID %d", TARGET_TAG_ID);
+            telemetry.update();
+            return; // Don't trigger until aligned
+        }
+        
         // Check current position and toggle between 0 and 60 degrees
         double currentPosition = triggerServo.getPosition();
         
         if (Math.abs(currentPosition - TRIGGER_SERVO_MIN_POSITION) < 0.1) {
             // Currently at 0 degrees, move to 60 degrees
             triggerServo.setPosition(TRIGGER_SERVO_MAX_POSITION);
-            telemetry.addData("Trigger Servo", "Moving to 60 degrees");
+            telemetry.addData("Trigger Servo", "FIRING! Moving to 60 degrees");
+            telemetry.addData("AprilTag", "Aligned and fired!");
         } else {
             // Currently at 60 degrees (or somewhere else), move to 0 degrees
             triggerServo.setPosition(TRIGGER_SERVO_MIN_POSITION);
-            telemetry.addData("Trigger Servo", "Moving to 0 degrees");
+            telemetry.addData("Trigger Servo", "Resetting to 0 degrees");
         }
         telemetry.update();
     }
