@@ -10,7 +10,6 @@ import com.qualcomm.robotcore.hardware.CRServo;
 import com.qualcomm.robotcore.hardware.Servo;
 import com.qualcomm.robotcore.hardware.ColorSensor;
 import com.qualcomm.robotcore.hardware.DistanceSensor;
-import com.qualcomm.robotcore.hardware.WebcamName;
 import com.qualcomm.robotcore.util.ElapsedTime;
 
 import org.firstinspires.ftc.robotcore.external.hardware.camera.WebcamName;
@@ -71,8 +70,8 @@ public class AutoOpDECODE extends LinearOpMode {
     
     // Servo settings - same as TeleOp
     public static final double SHOOTER_SERVO_POWER = 1.0;
-    public static final double TRIGGER_SERVO_MIN_POSITION = 0.0;      // 0 degrees
-    public static final double TRIGGER_SERVO_MAX_POSITION = 0.333;    // 60 degrees
+    public static final double TRIGGER_SERVO_MIN_POSITION = 0.222;    // 40 degrees (40/180 = 0.222)
+    public static final double TRIGGER_SERVO_MAX_POSITION = 0.639;    // 115 degrees (115/180 = 0.639)
     public static final double LIGHT_OFF_POSITION = 0.0;
     public static final double LIGHT_GREEN_POSITION = 0.5;
     
@@ -82,6 +81,32 @@ public class AutoOpDECODE extends LinearOpMode {
     public static final int TARGET_TAG_ID = 20;                 // Blue AprilTag ID
     public static final double TAG_APPROACH_DISTANCE = 24.0;    // inches - stop 2 feet from tag
     public static final double TAG_ALIGNMENT_TOLERANCE = 3.0;   // inches - alignment tolerance
+    
+    // Field dimensions and positions (in inches)
+    public static final double FIELD_WIDTH = 144.0;         // 12 feet = 144 inches
+    public static final double FIELD_LENGTH = 144.0;        // 12 feet = 144 inches
+    public static final double TILE_SIZE = 24.0;            // Each tile is 24x24 inches
+    
+    // Robot starting positions (choose one based on alliance and starting position)
+    public static final double START_RED_LEFT_X = 12.0;     // Red alliance, left position
+    public static final double START_RED_LEFT_Y = 12.0;
+    public static final double START_RED_RIGHT_X = 132.0;   // Red alliance, right position
+    public static final double START_RED_RIGHT_Y = 12.0;
+    public static final double START_BLUE_LEFT_X = 12.0;    // Blue alliance, left position
+    public static final double START_BLUE_LEFT_Y = 132.0;
+    public static final double START_BLUE_RIGHT_X = 132.0;  // Blue alliance, right position
+    public static final double START_BLUE_RIGHT_Y = 132.0;
+    
+    // Key field positions
+    public static final double CENTER_FIELD_X = 72.0;       // Center of field
+    public static final double CENTER_FIELD_Y = 72.0;
+    public static final double SCORING_ZONE_RED_Y = 24.0;   // Red scoring zone
+    public static final double SCORING_ZONE_BLUE_Y = 120.0; // Blue scoring zone
+    
+    // Movement constants
+    public static final double INCHES_PER_ENCODER_TICK = 0.05; // Calibrate this for your wheels
+    public static final double ROBOT_WIDTH = 18.0;          // Robot width in inches
+    public static final double ROBOT_LENGTH = 18.0;         // Robot length in inches
     
     // Timing constants
     public static final double SCAN_TIMEOUT = 10.0;         // seconds - max time to scan for objects
@@ -98,10 +123,14 @@ public class AutoOpDECODE extends LinearOpMode {
         SCAN_FOR_BALL,
         APPROACH_BALL,
         PICKUP_BALL,
+        CHECK_PICKUP_COUNT,
         SCAN_FOR_TAG,
         APPROACH_TAG,
         PREPARE_SHOOTER,
         FIRE_SEQUENCE,
+        RELOAD_SEQUENCE,
+        CHECK_FIRE_COUNT,
+        RETURN_TO_CENTER,
         COMPLETE
     }
     
@@ -110,17 +139,40 @@ public class AutoOpDECODE extends LinearOpMode {
     private boolean tagDetected = false;
     private AprilTagDetection targetTag = null;
     
+    // Ball pickup tracking
+    private int ballsCollected = 0;
+    private final int MAX_BALLS_TO_COLLECT = 3;  // Repeat find and pick 3 times
+    
+    // Firing sequence tracking
+    private int shotsFired = 0;
+    private final int MAX_SHOTS_TO_FIRE = 3;     // Fire 3 times
+    private double lastFireTime = 0;             // Track timing between shots
+    
+    // Field positioning tracking
+    private double robotX = START_BLUE_LEFT_X;  // Current robot X position
+    private double robotY = START_BLUE_LEFT_Y;  // Current robot Y position
+    private double robotHeading = 0.0;          // Robot heading in degrees (0 = facing forward)
+    
+    // Encoder tracking for position estimation
+    private int lastLeftEncoder = 0;
+    private int lastRightEncoder = 0;
+    private int lastStrafeEncoder = 0;
+    
     @Override
     public void runOpMode() {
         // Initialize all hardware
         initializeMotors();
         initializeAprilTag();
         initializeSensors();
+        initializeFieldPosition();
         
         // Display initialization status
         telemetry.addData("Status", "AutoOpDECODE Initialized");
-        telemetry.addData("Mission", "1. Find ball → 2. Pickup → 3. Find AprilTag → 4. Fire");
+        telemetry.addData("Mission", "1. Find %d balls → 2. Pickup → 3. Find AprilTag → 4. Fire", MAX_BALLS_TO_COLLECT);
         telemetry.addData("Target", "Blue AprilTag ID %d", TARGET_TAG_ID);
+        telemetry.addData("Starting Position", "X: %.1f, Y: %.1f", robotX, robotY);
+        telemetry.addData("Field Size", "%.0f × %.0f inches", FIELD_WIDTH, FIELD_LENGTH);
+        telemetry.addData("Ball Collection", "0 of %d collected", MAX_BALLS_TO_COLLECT);
         telemetry.addData("Ready", "Press PLAY to start autonomous");
         telemetry.update();
         
@@ -129,6 +181,7 @@ public class AutoOpDECODE extends LinearOpMode {
         
         // Main autonomous loop
         while (opModeIsActive()) {
+            updateRobotPosition();  // Track robot position using encoders
             updateDetections();
             executeCurrentState();
             updateTelemetry();
@@ -207,9 +260,9 @@ public class AutoOpDECODE extends LinearOpMode {
     }
     
     private void initializeAprilTag() {
-        // Create the AprilTag processor - same as TeleOp
+        // Create the AprilTag processor  
         aprilTag = new AprilTagProcessor.Builder()
-                .setTagFamily(AprilTagGameDatabase.TagFamily.TAG_36h11)
+                .setTagFamily(AprilTagProcessor.TagFamily.TAG_36h11)
                 .setTagLibrary(AprilTagGameDatabase.getCenterStageTagLibrary())
                 .setOutputUnits(DistanceUnit.INCH, AngleUnit.DEGREES)
                 .build();
@@ -247,6 +300,8 @@ public class AutoOpDECODE extends LinearOpMode {
         switch (currentState) {
             case INIT:
                 stageTimer.reset();
+                ballsCollected = 0;  // Reset ball counter
+                shotsFired = 0;      // Reset shot counter
                 currentState = AutoState.SCAN_FOR_BALL;
                 break;
                 
@@ -260,6 +315,10 @@ public class AutoOpDECODE extends LinearOpMode {
                 
             case PICKUP_BALL:
                 pickupBall();
+                break;
+                
+            case CHECK_PICKUP_COUNT:
+                checkPickupCount();
                 break;
                 
             case SCAN_FOR_TAG:
@@ -278,6 +337,18 @@ public class AutoOpDECODE extends LinearOpMode {
                 executeFireSequence();
                 break;
                 
+            case RELOAD_SEQUENCE:
+                executeReloadSequence();
+                break;
+                
+            case CHECK_FIRE_COUNT:
+                checkFireCount();
+                break;
+                
+            case RETURN_TO_CENTER:
+                returnToCenter();
+                break;
+                
             case COMPLETE:
                 stopAllMotors();
                 break;
@@ -286,7 +357,7 @@ public class AutoOpDECODE extends LinearOpMode {
     
     private void scanForBall() {
         if (stageTimer.seconds() == 0) {
-            telemetry.addData("Stage", "Scanning for ball...");
+            telemetry.addData("Stage", "Scanning for ball %d of %d...", ballsCollected + 1, MAX_BALLS_TO_COLLECT);
             stageTimer.reset();
         }
         
@@ -299,21 +370,29 @@ public class AutoOpDECODE extends LinearOpMode {
             ballDetected = true;
             currentState = AutoState.APPROACH_BALL;
             stageTimer.reset();
-            telemetry.addData("Ball", "DETECTED! Approaching...");
+            telemetry.addData("Ball", "DETECTED! Approaching ball %d...", ballsCollected + 1);
         }
         
-        // Timeout if no ball found
+        // Timeout if no ball found - check if we should proceed anyway
         if (stageTimer.seconds() > SCAN_TIMEOUT) {
-            telemetry.addData("Warning", "Ball scan timeout - proceeding to AprilTag");
             stopDriveMotors();
-            currentState = AutoState.SCAN_FOR_TAG;
+            if (ballsCollected > 0) {
+                // We have at least one ball, proceed to AprilTag
+                telemetry.addData("Warning", "Ball %d scan timeout - proceeding with %d balls", 
+                                ballsCollected + 1, ballsCollected);
+                currentState = AutoState.SCAN_FOR_TAG;
+            } else {
+                // No balls collected yet, try AprilTag anyway
+                telemetry.addData("Warning", "No balls found - proceeding to AprilTag");
+                currentState = AutoState.SCAN_FOR_TAG;
+            }
             stageTimer.reset();
         }
     }
     
     private void approachBall() {
         if (stageTimer.seconds() == 0) {
-            telemetry.addData("Stage", "Approaching ball...");
+            telemetry.addData("Stage", "Approaching ball %d of %d...", ballsCollected + 1, MAX_BALLS_TO_COLLECT);
             stageTimer.reset();
         }
         
@@ -330,17 +409,17 @@ public class AutoOpDECODE extends LinearOpMode {
             stageTimer.reset();
         }
         
-        // Timeout safety
+        // Timeout safety - proceed to check count if we can't reach this ball
         if (stageTimer.seconds() > SCAN_TIMEOUT) {
             stopDriveMotors();
-            currentState = AutoState.SCAN_FOR_TAG;
+            currentState = AutoState.CHECK_PICKUP_COUNT;
             stageTimer.reset();
         }
     }
     
     private void pickupBall() {
         if (stageTimer.seconds() == 0) {
-            telemetry.addData("Stage", "Picking up ball...");
+            telemetry.addData("Stage", "Picking up ball %d of %d...", ballsCollected + 1, MAX_BALLS_TO_COLLECT);
             // Start intake, conveyor, and indexor
             intake.setPower(INTAKE_POWER);
             conveyor.setPower(CONVEYOR_POWER);
@@ -367,7 +446,29 @@ public class AutoOpDECODE extends LinearOpMode {
             intake.setPower(0);
             conveyor.setPower(0);
             
-            telemetry.addData("Ball", "Pickup complete!");
+            // Increment ball counter
+            ballsCollected++;
+            telemetry.addData("Ball", "Pickup %d complete!", ballsCollected);
+            currentState = AutoState.CHECK_PICKUP_COUNT;
+            stageTimer.reset();
+        }
+    }
+    
+    private void checkPickupCount() {
+        if (stageTimer.seconds() == 0) {
+            telemetry.addData("Stage", "Checking pickup count...");
+            stageTimer.reset();
+        }
+        
+        // Check if we need to collect more balls
+        if (ballsCollected < MAX_BALLS_TO_COLLECT) {
+            telemetry.addData("Status", "Looking for ball %d of %d", ballsCollected + 1, MAX_BALLS_TO_COLLECT);
+            ballDetected = false;  // Reset detection flag
+            currentState = AutoState.SCAN_FOR_BALL;
+            stageTimer.reset();
+        } else {
+            // Collected enough balls, proceed to AprilTag
+            telemetry.addData("Collection", "All %d balls collected! Moving to AprilTag", MAX_BALLS_TO_COLLECT);
             currentState = AutoState.SCAN_FOR_TAG;
             stageTimer.reset();
         }
@@ -439,11 +540,12 @@ public class AutoOpDECODE extends LinearOpMode {
     
     private void prepareShooter() {
         if (stageTimer.seconds() == 0) {
-            telemetry.addData("Stage", "Preparing shooter...");
+            telemetry.addData("Stage", "Preparing shooter for %d shots...", MAX_SHOTS_TO_FIRE);
             // Start shooter and shooter servo
             shooter.setVelocity(SHOOTER_TARGET_VELOCITY);
             shooterServo.setPower(SHOOTER_SERVO_POWER);
             speedLight.setPosition(LIGHT_GREEN_POSITION);
+            shotsFired = 0;  // Reset shot counter
             stageTimer.reset();
         }
         
@@ -463,7 +565,8 @@ public class AutoOpDECODE extends LinearOpMode {
     
     private void executeFireSequence() {
         if (stageTimer.seconds() == 0) {
-            telemetry.addData("Stage", "FIRING!");
+            telemetry.addData("Stage", "FIRING shot %d of %d!", shotsFired + 1, MAX_SHOTS_TO_FIRE);
+            lastFireTime = runtime.seconds();
             stageTimer.reset();
         }
         
@@ -480,19 +583,112 @@ public class AutoOpDECODE extends LinearOpMode {
         } else if (sequenceTime < 1.0) {
             // Fire trigger servo
             triggerServo.setPosition(TRIGGER_SERVO_MAX_POSITION);
-            telemetry.addData("Trigger", "FIRED!");
+            telemetry.addData("Trigger", "SHOT %d FIRED!", shotsFired + 1);
             
-        } else if (sequenceTime < FIRING_SEQUENCE_TIME) {
+        } else if (sequenceTime < 1.5) {
             // Reset trigger servo
             triggerServo.setPosition(TRIGGER_SERVO_MIN_POSITION);
             
         } else {
-            // Complete firing sequence
+            // Complete single shot, increment counter
+            shotsFired++;
+            telemetry.addData("Shot Complete", "%d of %d fired", shotsFired, MAX_SHOTS_TO_FIRE);
+            
+            // Check if we need more shots
+            if (shotsFired < MAX_SHOTS_TO_FIRE) {
+                currentState = AutoState.RELOAD_SEQUENCE;
+                stageTimer.reset();
+            } else {
+                // All shots complete - return to center field
+                currentState = AutoState.RETURN_TO_CENTER;
+                stageTimer.reset();
+            }
+        }
+    }
+    
+    private void executeReloadSequence() {
+        if (stageTimer.seconds() == 0) {
+            telemetry.addData("Stage", "Reloading for next shot...");
+            stageTimer.reset();
+        }
+        
+        double reloadTime = stageTimer.seconds();
+        
+        if (reloadTime < 0.8) {
+            // Brief pause to let mechanisms settle
+            conveyor.setPower(0);
+            telemetry.addData("Reload", "Settling mechanisms...");
+            
+        } else if (reloadTime < 1.5) {
+            // Run conveyor and indexor to position next ball
+            conveyor.setPower(CONVEYOR_POWER * 0.7); // Slower for positioning
+            int currentPosition = indexor.getCurrentPosition();
+            indexor.setTargetPosition(currentPosition + (INDEXOR_TICKS / 2)); // Smaller movement
+            indexor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+            indexor.setPower(0.6);
+            
+            telemetry.addData("Reload", "Positioning next ball...");
+            
+        } else {
+            // Reload complete, ready for next shot
+            conveyor.setPower(0);
+            telemetry.addData("Reload", "Ready for shot %d!", shotsFired + 1);
+            currentState = AutoState.FIRE_SEQUENCE;
+            stageTimer.reset();
+        }
+    }
+    
+    private void checkFireCount() {
+        // This method is now handled within executeFireSequence
+        // Keeping for potential future use or debugging
+        if (shotsFired < MAX_SHOTS_TO_FIRE) {
+            currentState = AutoState.RELOAD_SEQUENCE;
+        } else {
+            // All shots complete - return to center field
             stopAllMotors();
             speedLight.setPosition(LIGHT_OFF_POSITION);
-            telemetry.addData("Mission", "COMPLETE!");
-            currentState = AutoState.COMPLETE;
+            telemetry.addData("Mission", "ALL %d SHOTS FIRED! Returning to center...", MAX_SHOTS_TO_FIRE);
+            currentState = AutoState.RETURN_TO_CENTER;
         }
+        stageTimer.reset();
+    }
+    
+    private void returnToCenter() {
+        if (stageTimer.seconds() == 0) {
+            telemetry.addData("Stage", "Returning to center field...");
+            stageTimer.reset();
+        }
+        
+        // Calculate distance to center field
+        double deltaX = CENTER_FIELD_X - robotX;
+        double deltaY = CENTER_FIELD_Y - robotY;
+        double distanceToCenter = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+        
+        telemetry.addData("Return to Center", "Distance: %.1f inches", distanceToCenter);
+        telemetry.addData("Current Position", "X: %.1f, Y: %.1f", robotX, robotY);
+        telemetry.addData("Target Position", "X: %.1f, Y: %.1f", CENTER_FIELD_X, CENTER_FIELD_Y);
+        
+        // Check if we've reached the center (within tolerance)
+        if (distanceToCenter < TILE_SIZE) {
+            // Arrived at center - stop and complete mission
+            stopAllMotors();
+            telemetry.addData("Mission", "COMPLETE! Robot at center field.");
+            telemetry.addData("Final Position", "X: %.1f, Y: %.1f", robotX, robotY);
+            currentState = AutoState.COMPLETE;
+            stageTimer.reset();
+            return;
+        }
+        
+        // Calculate movement direction
+        double moveAngle = Math.atan2(deltaY, deltaX);
+        double moveX = Math.cos(moveAngle) * APPROACH_SPEED;
+        double moveY = Math.sin(moveAngle) * APPROACH_SPEED;
+        
+        // Use mecanum drive to move toward center
+        setMecanumPower(moveY, moveX, 0, 0); // Forward, strafe, turn, (reserved)
+        
+        telemetry.addData("Movement", "Angle: %.1f°, Speed: %.2f", 
+            Math.toDegrees(moveAngle), APPROACH_SPEED);
     }
     
     // Detection and sensor methods
@@ -604,6 +800,19 @@ public class AutoOpDECODE extends LinearOpMode {
         telemetry.addData("Runtime", "%.1f seconds", runtime.seconds());
         telemetry.addData("Stage Timer", "%.1f seconds", stageTimer.seconds());
         
+        // Display ball collection progress
+        telemetry.addData("Balls Collected", "%d of %d", ballsCollected, MAX_BALLS_TO_COLLECT);
+        if (ballsCollected < MAX_BALLS_TO_COLLECT) {
+            telemetry.addData("Current Target", "Ball %d", ballsCollected + 1);
+        } else {
+            telemetry.addData("Collection Status", "All balls collected!");
+        }
+        
+        // Display field position
+        telemetry.addData("Robot Position", "X: %.1f, Y: %.1f", robotX, robotY);
+        telemetry.addData("Robot Heading", "%.1f degrees", robotHeading);
+        telemetry.addData("Field Zone", getFieldZone());
+        
         // Display detection status
         telemetry.addData("Ball Detected", ballDetected ? "YES" : "NO");
         telemetry.addData("Tag Detected", tagDetected ? "YES" : "NO");
@@ -625,5 +834,115 @@ public class AutoOpDECODE extends LinearOpMode {
         }
         
         telemetry.update();
+    }
+    
+    // Field positioning and navigation methods
+    private void updateRobotPosition() {
+        // Get current encoder values
+        int currentLeftEncoder = leftFront.getCurrentPosition();
+        int currentRightEncoder = rightFront.getCurrentPosition();
+        int currentStrafeEncoder = leftBack.getCurrentPosition(); // Use left back for strafe estimation
+        
+        // Calculate encoder deltas
+        int deltaLeft = currentLeftEncoder - lastLeftEncoder;
+        int deltaRight = currentRightEncoder - lastRightEncoder;
+        int deltaStrafe = currentStrafeEncoder - lastStrafeEncoder;
+        
+        // Convert encoder ticks to inches
+        double leftDistance = deltaLeft * INCHES_PER_ENCODER_TICK;
+        double rightDistance = deltaRight * INCHES_PER_ENCODER_TICK;
+        double strafeDistance = deltaStrafe * INCHES_PER_ENCODER_TICK;
+        
+        // Calculate forward movement and heading change
+        double forwardDistance = (leftDistance + rightDistance) / 2.0;
+        double headingChange = (rightDistance - leftDistance) / ROBOT_WIDTH * 57.2958; // Convert to degrees
+        
+        // Update robot heading
+        robotHeading += headingChange;
+        if (robotHeading > 180) robotHeading -= 360;
+        if (robotHeading < -180) robotHeading += 360;
+        
+        // Update robot position using heading
+        double headingRad = Math.toRadians(robotHeading);
+        robotX += forwardDistance * Math.cos(headingRad) - strafeDistance * Math.sin(headingRad);
+        robotY += forwardDistance * Math.sin(headingRad) + strafeDistance * Math.cos(headingRad);
+        
+        // Keep robot position within field bounds
+        robotX = Math.max(0, Math.min(FIELD_WIDTH, robotX));
+        robotY = Math.max(0, Math.min(FIELD_LENGTH, robotY));
+        
+        // Update last encoder values
+        lastLeftEncoder = currentLeftEncoder;
+        lastRightEncoder = currentRightEncoder;
+        lastStrafeEncoder = currentStrafeEncoder;
+    }
+    
+    private String getFieldZone() {
+        // Determine which zone of the field the robot is in
+        if (robotY < TILE_SIZE) {
+            return "Red Alliance Zone";
+        } else if (robotY > FIELD_LENGTH - TILE_SIZE) {
+            return "Blue Alliance Zone";
+        } else if (robotX < TILE_SIZE) {
+            return "Left Side";
+        } else if (robotX > FIELD_WIDTH - TILE_SIZE) {
+            return "Right Side";
+        } else if (Math.abs(robotX - CENTER_FIELD_X) < TILE_SIZE && 
+                   Math.abs(robotY - CENTER_FIELD_Y) < TILE_SIZE) {
+            return "Center Field";
+        } else {
+            return "Mid Field";
+        }
+    }
+    
+    private void driveToPosition(double targetX, double targetY, double maxPower) {
+        // Calculate distance and angle to target
+        double deltaX = targetX - robotX;
+        double deltaY = targetY - robotY;
+        double distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+        double targetAngle = Math.toDegrees(Math.atan2(deltaY, deltaX));
+        
+        // Calculate heading error
+        double headingError = targetAngle - robotHeading;
+        if (headingError > 180) headingError -= 360;
+        if (headingError < -180) headingError += 360;
+        
+        // Calculate drive powers
+        double drivePower = Math.min(maxPower, distance * 0.05); // Proportional to distance
+        double turnPower = Math.max(-0.3, Math.min(0.3, headingError * 0.02)); // Proportional to heading error
+        
+        // Apply mecanum drive with field-relative movement
+        double headingRad = Math.toRadians(robotHeading);
+        double fieldRelativeX = deltaX * Math.cos(headingRad) + deltaY * Math.sin(headingRad);
+        double fieldRelativeY = -deltaX * Math.sin(headingRad) + deltaY * Math.cos(headingRad);
+        
+        double strafePower = Math.max(-maxPower, Math.min(maxPower, fieldRelativeX * 0.05));
+        
+        setMecanumPower(drivePower, strafePower, turnPower, 0);
+        
+        telemetry.addData("Target", "X: %.1f, Y: %.1f", targetX, targetY);
+        telemetry.addData("Distance to Target", "%.1f inches", distance);
+        telemetry.addData("Heading Error", "%.1f degrees", headingError);
+    }
+    
+    private boolean isAtPosition(double targetX, double targetY, double tolerance) {
+        double distance = Math.sqrt(Math.pow(targetX - robotX, 2) + Math.pow(targetY - robotY, 2));
+        return distance < tolerance;
+    }
+    
+    private void initializeFieldPosition() {
+        // Set starting position based on alliance and starting location
+        // This should be configured based on your actual starting position
+        robotX = START_BLUE_LEFT_X;  // Change this based on your starting position
+        robotY = START_BLUE_LEFT_Y;  // Change this based on your starting position
+        robotHeading = 0.0;          // Facing forward (toward opposite alliance)
+        
+        // Reset encoder tracking
+        lastLeftEncoder = leftFront.getCurrentPosition();
+        lastRightEncoder = rightFront.getCurrentPosition();
+        lastStrafeEncoder = leftBack.getCurrentPosition();
+        
+        telemetry.addData("Starting Position", "X: %.1f, Y: %.1f", robotX, robotY);
+        telemetry.addData("Starting Heading", "%.1f degrees", robotHeading);
     }
 }

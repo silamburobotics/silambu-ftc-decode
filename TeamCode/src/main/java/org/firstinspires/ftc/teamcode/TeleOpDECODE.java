@@ -63,8 +63,11 @@ public class TeleOpDECODE extends LinearOpMode {
     public static final double SHOOTER_SERVO_POWER = 1.0;
     
     // Trigger servo position settings (0.0 = 0 degrees, 1.0 = 180 degrees)
-    public static final double TRIGGER_SERVO_MIN_POSITION = 0.0;      // 0 degrees
-    public static final double TRIGGER_SERVO_MAX_POSITION = 0.333;    // 60 degrees (60/180 = 0.333)
+    public static final double TRIGGER_SERVO_MIN_POSITION = 0.222;    // 40 degrees (40/180 = 0.222)
+    public static final double TRIGGER_SERVO_MAX_POSITION = 0.639;    // 115 degrees (115/180 = 0.639)
+    
+    // AprilTag alignment settings
+    public static final double HEADING_TOLERANCE = 2.0; // degrees
     
     // Speed light control settings (using servo positions for LED control)
     public static final double LIGHT_OFF_POSITION = 0.0;     // Servo position for light off
@@ -99,7 +102,7 @@ public class TeleOpDECODE extends LinearOpMode {
         telemetry.addData("Instructions", "X = Indexor (120 degrees)");
         telemetry.addData("Instructions", "A = Intake + Converyor");
         telemetry.addData("Instructions", "Y = Shooter");
-        telemetry.addData("Instructions", "B = Trigger Servo (0-60°) + AprilTag Align");
+        telemetry.addData("Instructions", "B = Trigger Servo (40-115°) + AprilTag Align");
         telemetry.addData("Instructions", "Left Stick = Drive/Strafe, Right Stick X = Turn");
         telemetry.addData("AprilTag", "Looking for Blue ID %d", TARGET_TAG_ID);
         telemetry.update();
@@ -168,7 +171,7 @@ public class TeleOpDECODE extends LinearOpMode {
         
         // Initialize servos to starting positions
         shooterServo.setPower(0);
-        triggerServo.setPosition(TRIGGER_SERVO_MIN_POSITION); // Start at 0 degrees
+        triggerServo.setPosition(TRIGGER_SERVO_MIN_POSITION); // Start at 40 degrees
         
         // Initialize speed light to off
         speedLight.setPosition(LIGHT_OFF_POSITION); // Start with light off
@@ -195,7 +198,7 @@ public class TeleOpDECODE extends LinearOpMode {
     private void initializeAprilTag() {
         // Create the AprilTag processor
         aprilTag = new AprilTagProcessor.Builder()
-                .setTagFamily(AprilTagGameDatabase.TagFamily.TAG_36h11)
+                .setTagFamily(AprilTagProcessor.TagFamily.TAG_36h11)
                 .setTagLibrary(AprilTagGameDatabase.getCenterStageTagLibrary())
                 .setOutputUnits(DistanceUnit.INCH, AngleUnit.DEGREES)
                 .build();
@@ -276,7 +279,7 @@ public class TeleOpDECODE extends LinearOpMode {
                     detection.id, detection.ftcPose.range);
             }
         }
-    }
+        
         // Create the AprilTag processor
         aprilTag = new AprilTagProcessor.Builder()
                 .setTagFamily(AprilTagProcessor.TagFamily.TAG_36h11)
@@ -457,18 +460,18 @@ public class TeleOpDECODE extends LinearOpMode {
             return; // Don't trigger until aligned
         }
         
-        // Check current position and toggle between 0 and 60 degrees
+        // Check current position and toggle between 40 and 115 degrees
         double currentPosition = triggerServo.getPosition();
         
         if (Math.abs(currentPosition - TRIGGER_SERVO_MIN_POSITION) < 0.1) {
-            // Currently at 0 degrees, move to 60 degrees
+            // Currently at 40 degrees, move to 115 degrees
             triggerServo.setPosition(TRIGGER_SERVO_MAX_POSITION);
-            telemetry.addData("Trigger Servo", "FIRING! Moving to 60 degrees");
+            telemetry.addData("Trigger Servo", "FIRING! Moving to 115 degrees");
             telemetry.addData("AprilTag", "Aligned and fired!");
         } else {
-            // Currently at 60 degrees (or somewhere else), move to 0 degrees
+            // Currently at 115 degrees (or somewhere else), move to 40 degrees
             triggerServo.setPosition(TRIGGER_SERVO_MIN_POSITION);
-            telemetry.addData("Trigger Servo", "Resetting to 0 degrees");
+            telemetry.addData("Trigger Servo", "Resetting to 40 degrees");
         }
         telemetry.update();
     }
@@ -537,7 +540,7 @@ public class TeleOpDECODE extends LinearOpMode {
         telemetry.addData("X Button", "Move Indexor 120 degrees");
         telemetry.addData("A Button", "Toggle Intake + Converyor");
         telemetry.addData("Y Button", "Toggle Shooter + Shooter Servo");
-        telemetry.addData("B Button", "Toggle Trigger Servo (0-60°)");
+        telemetry.addData("B Button", "Toggle Trigger Servo (40-115°)");
         telemetry.addData("Left Stick", "Drive Forward/Back & Strafe Left/Right");
         telemetry.addData("Right Stick X", "Turn Left/Right");
         telemetry.addData("DPad Up", "Manual Green Light Test");
