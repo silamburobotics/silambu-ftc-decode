@@ -102,7 +102,7 @@ public class TeleOpDECODE extends LinearOpMode {
         telemetry.addData("Instructions", "X = Indexor (120 degrees)");
         telemetry.addData("Instructions", "A = Intake + Converyor");
         telemetry.addData("Instructions", "Y = Shooter");
-        telemetry.addData("Instructions", "B = Trigger Servo (40-115°) + AprilTag Align");
+        telemetry.addData("Instructions", "B = Trigger Servo (40-115°) Manual/Auto");
         telemetry.addData("Instructions", "Left Stick = Drive/Strafe, Right Stick X = Turn");
         telemetry.addData("AprilTag", "Looking for Blue ID %d", TARGET_TAG_ID);
         telemetry.update();
@@ -444,12 +444,12 @@ public class TeleOpDECODE extends LinearOpMode {
     }
     
     private void toggleTriggerServo() {
-        // First check for AprilTag alignment before triggering
+        // Check for AprilTag alignment for optimal firing
         if (!isAlignedToTag) {
-            telemetry.addData("Trigger Servo", "Aligning to AprilTag first...");
-            telemetry.addData("Status", "Looking for Blue Tag ID %d", TARGET_TAG_ID);
-            telemetry.update();
-            return; // Don't trigger until aligned
+            telemetry.addData("Trigger Servo", "MANUAL MODE - No AprilTag alignment");
+            telemetry.addData("Warning", "Manual trigger - alignment recommended");
+        } else {
+            telemetry.addData("Trigger Servo", "ALIGNED MODE - AprilTag detected");
         }
         
         // Check current position and toggle between 40 and 115 degrees
@@ -459,7 +459,9 @@ public class TeleOpDECODE extends LinearOpMode {
             // Currently at 40 degrees, move to 115 degrees
             triggerServo.setPosition(TRIGGER_SERVO_MAX_POSITION);
             telemetry.addData("Trigger Servo", "FIRING! Moving to 115 degrees");
-            telemetry.addData("AprilTag", "Aligned and fired!");
+            if (isAlignedToTag) {
+                telemetry.addData("AprilTag", "Aligned and fired!");
+            }
         } else {
             // Currently at 115 degrees (or somewhere else), move to 40 degrees
             triggerServo.setPosition(TRIGGER_SERVO_MIN_POSITION);
