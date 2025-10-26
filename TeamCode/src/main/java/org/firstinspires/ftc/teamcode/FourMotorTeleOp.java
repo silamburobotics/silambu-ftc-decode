@@ -41,7 +41,7 @@ public class FourMotorTeleOp extends LinearOpMode {
     public static final double INTAKE_POWER = 0.8;
     public static final double SHOOTER_POWER = 1.0;
     public static final double CONVEYOR_POWER = 1.0;
-    public static  int INDEXOR_TICKS = 3800;
+    public static  int INDEXOR_TICKS = 179; // goBILDA 312 RPM motor: 120 degrees = 179 ticks
     
     // Servo power settings
     public static final double SHOOTER_SERVO_POWER = 1.0;
@@ -71,7 +71,7 @@ public class FourMotorTeleOp extends LinearOpMode {
         
         // Wait for the game to start (driver presses PLAY)
         telemetry.addData("Status", "Initialized");
-        telemetry.addData("Instructions", "X = Indexor (3500 ticks)");
+        telemetry.addData("Instructions", "X = Indexor (120 degrees)");
         telemetry.addData("Instructions", "A = Intake + Converyor");
         telemetry.addData("Instructions", "Y = Shooter");
         telemetry.addData("Instructions", "B = Trigger Servo (0-60°)");
@@ -84,6 +84,7 @@ public class FourMotorTeleOp extends LinearOpMode {
         while (opModeIsActive()) {
             handleControllerInputs();
             handleMecanumDrive();
+            checkIndexorCompletion();
             updateSpeedLight();
             updateTelemetry();
             sleep(20); // Small delay to prevent excessive CPU usage
@@ -258,8 +259,24 @@ public class FourMotorTeleOp extends LinearOpMode {
         indexor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
         indexor.setPower(0.8);
         
+        // Start conveyor to work with indexor
+        conveyor.setPower(CONVEYOR_POWER);
+        
         telemetry.addData("Indexor", "Moving to position: %d", targetPosition);
+        telemetry.addData("Converyor", "RUNNING with indexor");
         telemetry.update();
+    }
+    
+    private void checkIndexorCompletion() {
+        // Check if indexor was running in position mode and has completed
+        if (indexor.getMode() == DcMotor.RunMode.RUN_TO_POSITION && !indexor.isBusy()) {
+            // Indexor has reached target, stop conveyor if it was started by indexor
+            // Only stop if intake is not running (A button control)
+            if (Math.abs(intake.getPower()) < 0.1) {
+                conveyor.setPower(0);
+                telemetry.addData("Converyor", "STOPPED - Indexor completed");
+            }
+        }
     }
     
     private void toggleIntakeAndConveryor() {
@@ -382,7 +399,7 @@ public class FourMotorTeleOp extends LinearOpMode {
         // Display button instructions
         telemetry.addData("", "");
         telemetry.addData("Controls", "");
-        telemetry.addData("X Button", "Move Indexor 3500 ticks");
+        telemetry.addData("X Button", "Move Indexor 120 degrees");
         telemetry.addData("A Button", "Toggle Intake + Converyor");
         telemetry.addData("Y Button", "Toggle Shooter + Shooter Servo");
         telemetry.addData("B Button", "Toggle Trigger Servo (0-60°)");
