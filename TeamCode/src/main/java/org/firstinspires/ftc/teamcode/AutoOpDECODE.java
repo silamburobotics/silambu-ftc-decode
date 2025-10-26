@@ -276,8 +276,8 @@ public class AutoOpDECODE extends LinearOpMode {
         // Choose a camera resolution optimized for autonomous
         builder.setCameraResolution(new Size(640, 480));
         
-        // Enable the RC preview for debugging
-        builder.enableLiveView(true);
+        // Disable live view in autonomous to improve performance and avoid conflicts
+        builder.enableLiveView(false);
         
         // Set and enable the processor
         builder.addProcessor(aprilTag);

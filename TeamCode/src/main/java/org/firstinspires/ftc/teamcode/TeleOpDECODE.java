@@ -119,6 +119,11 @@ public class TeleOpDECODE extends LinearOpMode {
             updateTelemetry();
             sleep(20); // Small delay to prevent excessive CPU usage
         }
+        
+        // Cleanup: Close vision portal to free resources
+        if (visionPortal != null) {
+            visionPortal.close();
+        }
     }
     
     private void initializeMotors() {
@@ -212,8 +217,8 @@ public class TeleOpDECODE extends LinearOpMode {
         // Choose a camera resolution
         builder.setCameraResolution(new Size(640, 480));
         
-        // Enable the RC preview (LiveView)
-        builder.enableLiveView(true);
+        // Disable live view to avoid multiple vision portal conflicts
+        builder.enableLiveView(false);
         
         // Set and enable the processor
         builder.addProcessor(aprilTag);
@@ -279,19 +284,6 @@ public class TeleOpDECODE extends LinearOpMode {
                     detection.id, detection.ftcPose.range);
             }
         }
-        
-        // Create the AprilTag processor
-        aprilTag = new AprilTagProcessor.Builder()
-                .setTagFamily(AprilTagProcessor.TagFamily.TAG_36h11)
-                .setTagLibrary(AprilTagGameDatabase.getCenterStageTagLibrary())
-                .setOutputUnits(DistanceUnit.INCH, AngleUnit.DEGREES)
-                .build();
-        
-        // Create the vision portal
-        visionPortal = new VisionPortal.Builder()
-                .setCamera(hardwareMap.get(WebcamName.class, "Webcam 1"))
-                .addProcessor(aprilTag)
-                .build();
     }
     
     private void handleControllerInputs() {
