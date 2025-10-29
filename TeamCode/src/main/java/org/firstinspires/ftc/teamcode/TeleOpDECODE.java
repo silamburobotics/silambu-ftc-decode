@@ -8,6 +8,9 @@ import com.qualcomm.robotcore.hardware.DcMotorEx;
 import com.qualcomm.robotcore.hardware.DcMotorSimple;
 import com.qualcomm.robotcore.hardware.CRServo;
 import com.qualcomm.robotcore.hardware.Servo;
+import com.qualcomm.robotcore.hardware.ColorSensor;
+import com.qualcomm.robotcore.hardware.NormalizedColorSensor;
+import com.qualcomm.robotcore.hardware.NormalizedRGBA;
 import com.qualcomm.robotcore.util.ElapsedTime;
 
 import org.firstinspires.ftc.robotcore.external.hardware.camera.WebcamName;
@@ -42,6 +45,11 @@ public class TeleOpDECODE extends LinearOpMode {
     
     // Declare speed indicator light (using servo for PWM control)
     private Servo speedLight;
+    
+    // Declare color sensors for indexor ball detection
+    private NormalizedColorSensor colorSensorIntake;    // Position 1: Entry point
+    private NormalizedColorSensor colorSensorFire;      // Position 2: Exit/firing point
+    private NormalizedColorSensor colorSensorStore;     // Position 3: Middle section
     
     // AprilTag detection
     private VisionPortal visionPortal;
@@ -97,6 +105,12 @@ public class TeleOpDECODE extends LinearOpMode {
     public static final double STRAFE_SPEED_MULTIPLIER = 0.8; // Max strafe speed (0.0 to 1.0)
     public static final double TURN_SPEED_MULTIPLIER = 0.6;   // Max turn speed (0.0 to 1.0)
     
+    // Color sensor settings for ball detection
+    public static final double COLOR_SENSOR_GAIN = 2.0;      // Sensor gain for better detection
+    public static final double BALL_DETECTION_THRESHOLD = 0.3; // Minimum alpha (proximity) for ball detection
+    public static final double GREEN_BALL_THRESHOLD = 0.4;   // Green channel threshold for green ball detection
+    public static final double PURPLE_BALL_THRESHOLD = 0.4;  // Combined red+blue threshold for purple ball detection
+    
     // Shooter velocity control (ticks per second)
     public static double SHOOTER_TARGET_VELOCITY = 1600; // Range: 1200-1800 ticks/sec
     
@@ -132,6 +146,7 @@ public class TeleOpDECODE extends LinearOpMode {
             handleMecanumDrive();
             handleAprilTagAlignment();
             checkIndexorCompletion();
+            readColorSensors();
             updateSpeedLight();
             updateTelemetry();
             sleep(20); // Small delay to prevent excessive CPU usage
@@ -215,6 +230,16 @@ public class TeleOpDECODE extends LinearOpMode {
         
         // Set shooter to use velocity control
         shooter.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+        
+        // Initialize color sensors for indexor ball detection
+        colorSensorIntake = hardwareMap.get(NormalizedColorSensor.class, "colorSensorEntry");
+        colorSensorFire = hardwareMap.get(NormalizedColorSensor.class, "colorSensorExit");
+        colorSensorStore = hardwareMap.get(NormalizedColorSensor.class, "colorSensorMiddle");
+        
+        // Set color sensor gain for better detection
+        colorSensorIntake.setGain((float)COLOR_SENSOR_GAIN);
+        colorSensorFire.setGain((float)COLOR_SENSOR_GAIN);
+        colorSensorStore.setGain((float)COLOR_SENSOR_GAIN);
     }
     
     private void initializeAprilTag() {
@@ -636,6 +661,64 @@ public class TeleOpDECODE extends LinearOpMode {
         }
     }
     
+    private void readColorSensors() {
+        // Read all three color sensors
+        NormalizedRGBA intakeColors = colorSensorIntake.getNormalizedColors();
+        NormalizedRGBA fireColors = colorSensorFire.getNormalizedColors();
+        NormalizedRGBA storeColors = colorSensorStore.getNormalizedColors();
+        
+        // Detect balls at each position
+        boolean ballAtIntake = detectBall(intakeColors);
+        boolean ballAtFire = detectBall(fireColors);
+        boolean ballAtStore = detectBall(storeColors);
+        
+        // Add color sensor telemetry
+        telemetry.addData("Color Sensors", "Intake | Fire | Store");
+        telemetry.addData("Ball Detection", "%s | %s | %s", 
+            ballAtIntake ? "BALL" : "----",
+            ballAtFire ? "BALL" : "----", 
+            ballAtStore ? "BALL" : "----");
+        
+        // Show ball colors if detected
+        if (ballAtIntake) {
+            String ballColor = getBallColor(intakeColors);
+            telemetry.addData("Intake Ball Color", ballColor);
+        }
+        if (ballAtFire) {
+            String ballColor = getBallColor(fireColors);
+            telemetry.addData("Fire Ball Color", ballColor);
+        }
+        if (ballAtStore) {
+            String ballColor = getBallColor(storeColors);
+            telemetry.addData("Store Ball Color", ballColor);
+        }
+        
+        // Show raw color values for debugging
+        telemetry.addData("Intake RGBA", "R:%.2f G:%.2f B:%.2f A:%.2f", 
+            intakeColors.red, intakeColors.green, intakeColors.blue, intakeColors.alpha);
+        telemetry.addData("Fire RGBA", "R:%.2f G:%.2f B:%.2f A:%.2f", 
+            fireColors.red, fireColors.green, fireColors.blue, fireColors.alpha);
+        telemetry.addData("Store RGBA", "R:%.2f G:%.2f B:%.2f A:%.2f", 
+            storeColors.red, storeColors.green, storeColors.blue, storeColors.alpha);
+    }
+    
+    private boolean detectBall(NormalizedRGBA colors) {
+        // A ball is detected if the alpha (proximity) value is above threshold
+        return colors.alpha > BALL_DETECTION_THRESHOLD;
+    }
+    
+    private String getBallColor(NormalizedRGBA colors) {
+        // Determine ball color based on RGB values
+        if (colors.green > GREEN_BALL_THRESHOLD && colors.green > colors.red && colors.green > colors.blue) {
+            return "GREEN";
+        } else if ((colors.red + colors.blue) > PURPLE_BALL_THRESHOLD && colors.red > 0.2 && colors.blue > 0.2 && colors.green < colors.red) {
+            // Purple is a combination of red and blue with low green
+            return "PURPLE";
+        } else {
+            return "UNKNOWN";
+        }
+    }
+
     private void updateTelemetry() {
         // Display motor status
         telemetry.addData("Motor Status", "");
