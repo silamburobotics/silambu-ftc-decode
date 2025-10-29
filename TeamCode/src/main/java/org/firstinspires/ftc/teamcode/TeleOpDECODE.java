@@ -80,8 +80,8 @@ public class TeleOpDECODE extends LinearOpMode {
     public static final double SHOOTER_SERVO_POWER = -1.0; // Negative for reverse direction
     
     // Trigger servo position settings (0.0 = 0 degrees, 1.0 = 180 degrees)
-    public static final double TRIGGER_FIRE = 0.333;    // 60 degrees (60/180 = 0.333)
-    public static final double TRIGGER_HOME = 0.667;    // 120 degrees (120/180 = 0.667)
+    public static final double TRIGGER_FIRE = 0.667;    // 120 degrees (120/180 = 0.667)
+    public static final double TRIGGER_HOME = 0.333;    // 60 degrees (60/180 = 0.333)
     
     // AprilTag alignment settings
     public static final double HEADING_TOLERANCE = 2.0; // degrees
@@ -193,7 +193,7 @@ public class TeleOpDECODE extends LinearOpMode {
         
         // Initialize servos to starting positions
         shooterServo.setPower(0);
-        triggerServo.setPosition(TRIGGER_FIRE); // Start at 60 degrees
+        triggerServo.setPosition(TRIGGER_FIRE); // Start at home position (120 degrees)
         
         // Initialize speed light to off
         speedLight.setPosition(LIGHT_OFF_POSITION); // Start with light off
@@ -599,20 +599,20 @@ public class TeleOpDECODE extends LinearOpMode {
             telemetry.addData("Trigger Servo", "ALIGNED MODE - AprilTag detected");
         }
         
-        // Check current position and toggle between 60 and 120 degrees
+        // Check current position and toggle between home (120°) and fire (60°)
         double currentPosition = triggerServo.getPosition();
         
         if (Math.abs(currentPosition - TRIGGER_FIRE) < 0.1) {
-            // Currently at 60 degrees, move to 120 degrees
+            // Currently at home position (120 degrees), move to fire position (60 degrees)
             triggerServo.setPosition(TRIGGER_HOME);
-            telemetry.addData("Trigger Servo", "FIRING! Moving to 120 degrees");
+            telemetry.addData("Trigger Servo", "FIRING! Moving to 60 degrees");
             if (isAlignedToTag) {
                 telemetry.addData("AprilTag", "Aligned and fired!");
             }
         } else {
-            // Currently at 120 degrees (or somewhere else), move to 60 degrees
+            // Currently at fire position (60 degrees), return to home position (120 degrees)
             triggerServo.setPosition(TRIGGER_FIRE);
-            telemetry.addData("Trigger Servo", "Resetting to 60 degrees");
+            telemetry.addData("Trigger Servo", "Returning to home position (120 degrees)");
         }
         telemetry.update();
     }
