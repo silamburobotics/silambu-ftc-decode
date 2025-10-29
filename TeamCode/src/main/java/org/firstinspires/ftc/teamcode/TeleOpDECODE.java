@@ -77,7 +77,7 @@ public class TeleOpDECODE extends LinearOpMode {
     public static final int INDEXOR_REVERSE_TICKS = 60;     // 20 degrees reverse for stuck recovery (60 ticks ≈ 20°)
     
     // Servo power settings
-    public static final double SHOOTER_SERVO_POWER = -1.0; // Negative for reverse direction
+    public static final double SHOOTER_SERVO_POWER = 1.0; // Positive for forward direction
     
     // Trigger servo position settings (0.0 = 0 degrees, 1.0 = 180 degrees)
     public static final double TRIGGER_FIRE = 0.667;    // 120 degrees (120/180 = 0.667)
