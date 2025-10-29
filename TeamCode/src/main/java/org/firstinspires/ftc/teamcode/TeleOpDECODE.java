@@ -8,6 +8,7 @@ import com.qualcomm.robotcore.hardware.DcMotorEx;
 import com.qualcomm.robotcore.hardware.DcMotorSimple;
 import com.qualcomm.robotcore.hardware.CRServo;
 import com.qualcomm.robotcore.hardware.Servo;
+import com.qualcomm.robotcore.util.ElapsedTime;
 
 import org.firstinspires.ftc.robotcore.external.hardware.camera.WebcamName;
 import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
@@ -53,11 +54,27 @@ public class TeleOpDECODE extends LinearOpMode {
     private boolean previousB = false;
     private boolean isAlignedToTag = false; // Track if robot is aligned to AprilTag
     
+    // Indexor stuck detection variables
+    private ElapsedTime indexorTimer = new ElapsedTime();
+    private ElapsedTime indexorProgressTimer = new ElapsedTime();
+    private int lastIndexorPosition = 0;
+    private int indexorTargetPosition = 0;
+    private boolean indexorIsRunning = false;
+    private boolean indexorIsRecovering = false;
+    private int indexorRecoveryAttempts = 0;
+    private int indexorOriginalTarget = 0;
+    
     // Motor power settings
     public static final double INTAKE_POWER = 0.8;
     public static final double SHOOTER_POWER = 1.0;
     public static final double CONVEYOR_POWER = 1.0;
     public static  int INDEXOR_TICKS = 179; // goBILDA 312 RPM motor: 120 degrees = 179 ticks
+    
+    // Indexor stuck detection settings
+    public static final double INDEXOR_TIMEOUT = 5.0;       // seconds - max time for indexor to complete
+    public static final int INDEXOR_PROGRESS_THRESHOLD = 10; // minimum ticks of progress required
+    public static final double INDEXOR_PROGRESS_CHECK_TIME = 2.0; // seconds between progress checks
+    public static final int INDEXOR_REVERSE_TICKS = 60;     // 20 degrees reverse for stuck recovery (60 ticks ≈ 20°)
     
     // Servo power settings
     public static final double SHOOTER_SERVO_POWER = 1.0;
@@ -176,7 +193,7 @@ public class TeleOpDECODE extends LinearOpMode {
         
         // Initialize servos to starting positions
         shooterServo.setPower(0);
-        triggerServo.setPosition(TRIGGER_HOME); // Start at 120 degrees
+        triggerServo.setPosition(TRIGGER_FIRE); // Start at 60 degrees
         
         // Initialize speed light to off
         speedLight.setPosition(LIGHT_OFF_POSITION); // Start with light off
@@ -380,6 +397,16 @@ public class TeleOpDECODE extends LinearOpMode {
         indexor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
         indexor.setPower(0.3);
         
+        // Start stuck detection tracking
+        indexorTimer.reset();
+        indexorProgressTimer.reset();
+        lastIndexorPosition = currentPosition;
+        indexorTargetPosition = targetPosition;
+        indexorOriginalTarget = targetPosition; // Save original target for recovery
+        indexorIsRunning = true;
+        indexorIsRecovering = false;
+        indexorRecoveryAttempts = 0;
+        
         // Start conveyor to work with indexor
         conveyor.setPower(CONVEYOR_POWER);
         
@@ -389,15 +416,135 @@ public class TeleOpDECODE extends LinearOpMode {
     }
     
     private void checkIndexorCompletion() {
-        // Check if indexor was running in position mode and has completed
-        if (indexor.getMode() == DcMotor.RunMode.RUN_TO_POSITION && !indexor.isBusy()) {
-            // Indexor has reached target, stop conveyor if it was started by indexor
-            // Only stop if intake is not running (A button control)
-            if (Math.abs(intake.getPower()) < 0.1) {
-                conveyor.setPower(0);
-                telemetry.addData("Converyor", "STOPPED - Indexor completed");
+        // Only check if indexor is supposed to be running
+        if (!indexorIsRunning || indexor.getMode() != DcMotor.RunMode.RUN_TO_POSITION) {
+            return;
+        }
+        
+        int currentPosition = indexor.getCurrentPosition();
+        double timeElapsed = indexorTimer.seconds();
+        double progressTime = indexorProgressTimer.seconds();
+        
+        // Check if indexor has completed successfully
+        if (!indexor.isBusy()) {
+            if (indexorIsRecovering) {
+                // Recovery reverse movement completed, try original target again
+                completeIndexorRecovery();
+                return;
+            } else {
+                // Normal completion - indexor has reached target successfully
+                indexorIsRunning = false;
+                // Only stop conveyor if intake is not running (A button control)
+                if (Math.abs(intake.getPower()) < 0.1) {
+                    conveyor.setPower(0);
+                    telemetry.addData("Indexor", "✓ COMPLETED successfully");
+                    telemetry.addData("Converyor", "STOPPED - Indexor completed");
+                }
+                return;
             }
         }
+        
+        // STUCK DETECTION - Check for timeout
+        if (timeElapsed > INDEXOR_TIMEOUT) {
+            // Indexor has timed out - try recovery
+            telemetry.addData("⚠️ INDEXOR TIMEOUT", "After %.1f seconds", timeElapsed);
+            telemetry.addData("Position", "Current: %d, Target: %d", currentPosition, indexorTargetPosition);
+            attemptIndexorRecovery();
+            return;
+        }
+        
+        // STUCK DETECTION - Check for lack of progress
+        if (progressTime > INDEXOR_PROGRESS_CHECK_TIME) {
+            int progressMade = Math.abs(currentPosition - lastIndexorPosition);
+            
+            if (progressMade < INDEXOR_PROGRESS_THRESHOLD) {
+                // Not making sufficient progress - try recovery
+                telemetry.addData("⚠️ INDEXOR NO PROGRESS", "In %.1f seconds", progressTime);
+                telemetry.addData("Progress", "Only %d ticks (need %d)", progressMade, INDEXOR_PROGRESS_THRESHOLD);
+                telemetry.addData("Position", "Current: %d, Target: %d", currentPosition, indexorTargetPosition);
+                attemptIndexorRecovery();
+                return;
+            } else {
+                // Making progress, reset progress timer and update position
+                indexorProgressTimer.reset();
+                lastIndexorPosition = currentPosition;
+            }
+        }
+        
+        // Normal operation - display progress
+        int remaining = Math.abs(indexorTargetPosition - currentPosition);
+        double percentComplete = (double)(Math.abs(currentPosition - (indexorTargetPosition - INDEXOR_TICKS))) / INDEXOR_TICKS * 100;
+        
+        if (indexorIsRecovering) {
+            telemetry.addData("Indexor Status", "🔄 RECOVERY %d/2 - Backing out...", indexorRecoveryAttempts);
+        } else {
+            telemetry.addData("Indexor Status", "Moving... %.1f%% complete", Math.min(percentComplete, 100));
+        }
+        telemetry.addData("Position", "Current: %d, Target: %d (%d remaining)", 
+                         currentPosition, indexorTargetPosition, remaining);
+        telemetry.addData("Time", "%.1f / %.1f seconds", timeElapsed, INDEXOR_TIMEOUT);
+        if (indexorRecoveryAttempts > 0) {
+            telemetry.addData("Recovery Info", "Attempt %d/2 - Auto unstick system", indexorRecoveryAttempts);
+        }
+    }
+    
+    private void attemptIndexorRecovery() {
+        if (indexorRecoveryAttempts >= 2) {
+            // Too many recovery attempts, give up
+            indexor.setPower(0);
+            indexor.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
+            indexorIsRunning = false;
+            indexorIsRecovering = false;
+            
+            // Stop conveyor unless intake is running
+            if (Math.abs(intake.getPower()) < 0.1) {
+                conveyor.setPower(0);
+            }
+            
+            telemetry.addData("❌ INDEXOR FAILED", "Recovery failed after %d attempts", indexorRecoveryAttempts);
+            telemetry.addData("Action", "Manual intervention required - check for mechanical issues");
+            return;
+        }
+        
+        indexorRecoveryAttempts++;
+        indexorIsRecovering = true;
+        
+        // Step 1: Back out 20 degrees (reverse)
+        int currentPosition = indexor.getCurrentPosition();
+        int reverseTarget = currentPosition - INDEXOR_REVERSE_TICKS;
+        
+        indexor.setTargetPosition(reverseTarget);
+        indexor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+        indexor.setPower(0.3);
+        
+        // Reset timers for recovery phase
+        indexorTimer.reset();
+        indexorProgressTimer.reset();
+        lastIndexorPosition = currentPosition;
+        indexorTargetPosition = reverseTarget;
+        
+        telemetry.addData("🔄 RECOVERY ATTEMPT", "%d/2 - Backing out 20°", indexorRecoveryAttempts);
+        telemetry.addData("Recovery", "Moving from %d to %d", currentPosition, reverseTarget);
+    }
+    
+    private void completeIndexorRecovery() {
+        // Recovery reverse movement completed, now try original target again
+        int currentPosition = indexor.getCurrentPosition();
+        
+        // Set target back to original goal
+        indexor.setTargetPosition(indexorOriginalTarget);
+        indexor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+        indexor.setPower(0.3);
+        
+        // Reset tracking for retry
+        indexorTimer.reset();
+        indexorProgressTimer.reset();
+        lastIndexorPosition = currentPosition;
+        indexorTargetPosition = indexorOriginalTarget;
+        indexorIsRecovering = false;
+        
+        telemetry.addData("🔄 RECOVERY", "Retry attempt %d - Moving to original target", indexorRecoveryAttempts);
+        telemetry.addData("Target", "From %d to %d", currentPosition, indexorOriginalTarget);
     }
     
     private void toggleIntakeAndConveryor() {
@@ -455,17 +602,17 @@ public class TeleOpDECODE extends LinearOpMode {
         // Check current position and toggle between 60 and 120 degrees
         double currentPosition = triggerServo.getPosition();
         
-        if (Math.abs(currentPosition - TRIGGER_HOME) < 0.1) {
-            // Currently at 120 degrees (home), move to 60 degrees (fire)
-            triggerServo.setPosition(TRIGGER_FIRE);
-            telemetry.addData("Trigger Servo", "FIRING! Moving to 60 degrees");
+        if (Math.abs(currentPosition - TRIGGER_FIRE) < 0.1) {
+            // Currently at 60 degrees, move to 120 degrees
+            triggerServo.setPosition(TRIGGER_HOME);
+            telemetry.addData("Trigger Servo", "FIRING! Moving to 120 degrees");
             if (isAlignedToTag) {
                 telemetry.addData("AprilTag", "Aligned and fired!");
             }
         } else {
-            // Currently at 60 degrees (or somewhere else), move to 120 degrees (home)
-            triggerServo.setPosition(TRIGGER_HOME);
-            telemetry.addData("Trigger Servo", "Returning to home (120 degrees)");
+            // Currently at 120 degrees (or somewhere else), move to 60 degrees
+            triggerServo.setPosition(TRIGGER_FIRE);
+            telemetry.addData("Trigger Servo", "Resetting to 60 degrees");
         }
         telemetry.update();
     }
@@ -542,9 +689,15 @@ public class TeleOpDECODE extends LinearOpMode {
         telemetry.addData("DPad Left", "Manual White Light Test");
         telemetry.addData("DPad Right", "Manual Test Position");
         
-        // Check if indexor is busy
-        if (indexor.isBusy()) {
-            telemetry.addData("Indexor", "Moving to target...");
+        // Enhanced indexor status with stuck detection info
+        if (indexorIsRunning && indexor.isBusy()) {
+            double timeElapsed = indexorTimer.seconds();
+            telemetry.addData("Indexor Status", "⚙️ Moving... (%.1fs/%.1fs)", timeElapsed, INDEXOR_TIMEOUT);
+            telemetry.addData("Stuck Detection", "Active - monitoring progress");
+        } else if (indexorIsRunning && !indexor.isBusy()) {
+            telemetry.addData("Indexor Status", "⚠️ Check stuck detection above");
+        } else {
+            telemetry.addData("Indexor Status", "Ready (Press X to move 120°)");
         }
         
         telemetry.update();
