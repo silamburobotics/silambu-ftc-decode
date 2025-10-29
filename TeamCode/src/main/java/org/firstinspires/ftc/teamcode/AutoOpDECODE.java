@@ -69,7 +69,7 @@ public class AutoOpDECODE extends LinearOpMode {
     public static final double APPROACH_SPEED = 0.25;      // Speed when approaching targets
     
     // Servo settings - same as TeleOp
-    public static final double SHOOTER_SERVO_POWER = 1.0;
+    public static final double SHOOTER_SERVO_POWER = -1.0; // Negative for reverse direction
     public static final double TRIGGER_FIRE = 0.333;    // 60 degrees (60/180 = 0.333)
     public static final double TRIGGER_HOME = 0.667;    // 120 degrees (120/180 = 0.667)
     public static final double LIGHT_OFF_POSITION = 0.0;
@@ -226,7 +226,7 @@ public class AutoOpDECODE extends LinearOpMode {
         rightBack.setDirection(DcMotor.Direction.FORWARD);
         
         // Set servo directions
-        shooterServo.setDirection(DcMotorSimple.Direction.REVERSE);
+        shooterServo.setDirection(DcMotorSimple.Direction.REVERSE); // Back to original setting
         triggerServo.setDirection(Servo.Direction.FORWARD);
         speedLight.setDirection(Servo.Direction.FORWARD);
         
