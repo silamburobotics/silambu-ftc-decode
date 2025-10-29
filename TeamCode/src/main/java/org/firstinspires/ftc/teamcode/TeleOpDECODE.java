@@ -71,7 +71,7 @@ public class TeleOpDECODE extends LinearOpMode {
     public static  int INDEXOR_TICKS = 179; // goBILDA 312 RPM motor: 120 degrees = 179 ticks
     
     // Indexor stuck detection settings
-    public static final double INDEXOR_TIMEOUT = 5.0;       // seconds - max time for indexor to complete
+    public static final double INDEXOR_TIMEOUT = 1.0;       // seconds - max time for indexor to complete (reduced for faster recovery)
     public static final int INDEXOR_PROGRESS_THRESHOLD = 10; // minimum ticks of progress required
     public static final double INDEXOR_PROGRESS_CHECK_TIME = 2.0; // seconds between progress checks
     public static final int INDEXOR_REVERSE_TICKS = 60;     // 20 degrees reverse for stuck recovery (60 ticks ≈ 20°)
