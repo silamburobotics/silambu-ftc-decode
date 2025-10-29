@@ -62,6 +62,15 @@ public class TeleOpDECODE extends LinearOpMode {
     private boolean previousB = false;
     private boolean isAlignedToTag = false; // Track if robot is aligned to AprilTag
     
+    // Auto-ball management system variables
+    private boolean autoBallSystemEnabled = true;  // Enable automatic ball management
+    private boolean previousBallAtIntake = false;  // Previous ball detection state
+    private boolean previousBallAtFire = false;    // Previous ball detection at fire position
+    private boolean previousBallAtStore = false;   // Previous ball detection at store position
+    private ElapsedTime ballDetectionTimer = new ElapsedTime(); // Timer to debounce ball detection
+    private boolean allPositionsFilled = false;    // Track if all three positions have balls
+    private boolean intakeAutoStopped = false;     // Track if intake was auto-stopped
+    
     // Indexor stuck detection variables
     private ElapsedTime indexorTimer = new ElapsedTime();
     private ElapsedTime indexorProgressTimer = new ElapsedTime();
@@ -111,6 +120,10 @@ public class TeleOpDECODE extends LinearOpMode {
     public static final double GREEN_BALL_THRESHOLD = 0.4;   // Green channel threshold for green ball detection
     public static final double PURPLE_BALL_THRESHOLD = 0.4;  // Combined red+blue threshold for purple ball detection
     
+    // Auto-ball management system settings
+    public static final double BALL_DETECTION_DEBOUNCE = 0.3; // Seconds to wait before confirming ball detection
+    public static final double AUTO_INDEXOR_POWER = 0.3;      // Power for automatic indexor movement
+    
     // Shooter velocity control (ticks per second)
     public static double SHOOTER_TARGET_VELOCITY = 1600; // Range: 1200-1800 ticks/sec
     
@@ -135,7 +148,9 @@ public class TeleOpDECODE extends LinearOpMode {
         telemetry.addData("Instructions", "Y = Shooter");
         telemetry.addData("Instructions", "B = Trigger Servo (60-120°) Manual/Auto");
         telemetry.addData("Instructions", "Left Stick = Drive/Strafe, Right Stick X = Turn");
+        telemetry.addData("Instructions", "Back = Toggle Auto-Ball System");
         telemetry.addData("AprilTag", "Looking for Blue ID %d", TARGET_TAG_ID);
+        telemetry.addData("🤖 Auto-Ball System", "Auto-advances balls when intake running");
         telemetry.update();
         
         waitForStart();
@@ -147,6 +162,7 @@ public class TeleOpDECODE extends LinearOpMode {
             handleAprilTagAlignment();
             checkIndexorCompletion();
             readColorSensors();
+            handleAutoBallManagement(); // Automatic ball management system
             updateSpeedLight();
             updateTelemetry();
             sleep(20); // Small delay to prevent excessive CPU usage
@@ -348,6 +364,14 @@ public class TeleOpDECODE extends LinearOpMode {
         } else if (gamepad1.dpad_right) {
             speedLight.setPosition(0.75);
             telemetry.addData("Manual Light Test", "Test position (0.75)");
+        }
+        
+        // Back button to toggle auto-ball management system
+        if (gamepad1.back) {
+            autoBallSystemEnabled = !autoBallSystemEnabled;
+            ballDetectionTimer.reset();
+            intakeAutoStopped = false;
+            telemetry.addData("🤖 Auto-Ball System", autoBallSystemEnabled ? "ENABLED" : "DISABLED");
         }
         
         // Handle X button - Run Indexor for 3500 ticks
@@ -581,12 +605,18 @@ public class TeleOpDECODE extends LinearOpMode {
             // Stop both motors
             intake.setPower(0);
             conveyor.setPower(0);
+            intakeAutoStopped = false; // Reset auto-stop flag when manually stopped
             telemetry.addData("Intake & Converyor", "STOPPED");
         } else {
             // Start both motors
             intake.setPower(INTAKE_POWER);
             conveyor.setPower(CONVEYOR_POWER);
+            intakeAutoStopped = false; // Reset auto-stop flag when manually started
+            // Reset ball management system when intake starts
+            ballDetectionTimer.reset();
+            allPositionsFilled = false;
             telemetry.addData("Intake & Converyor", "RUNNING");
+            telemetry.addData("🤖 Auto-Ball System", "Monitoring for balls...");
         }
         telemetry.update();
     }
@@ -679,6 +709,25 @@ public class TeleOpDECODE extends LinearOpMode {
             ballAtFire ? "BALL" : "----", 
             ballAtStore ? "BALL" : "----");
         
+        // Auto-ball management status
+        boolean intakeRunning = Math.abs(intake.getPower()) > 0.1;
+        if (autoBallSystemEnabled && intakeRunning) {
+            telemetry.addData("🤖 Auto-Ball System", "ACTIVE - Managing balls");
+            telemetry.addData("All Positions", allPositionsFilled ? "✅ FILLED" : "⏳ Loading...");
+            if (allPositionsFilled) {
+                telemetry.addData("Status", "🛑 Intake auto-stopped - All loaded!");
+            } else {
+                telemetry.addData("Status", "🔄 Auto-advancing balls as detected");
+            }
+        } else if (autoBallSystemEnabled && intakeAutoStopped) {
+            telemetry.addData("🤖 Auto-Ball System", "💤 STANDBY - All positions filled");
+            telemetry.addData("Status", "Press A to restart intake");
+        } else if (autoBallSystemEnabled) {
+            telemetry.addData("🤖 Auto-Ball System", "💤 STANDBY - Start intake to activate");
+        } else {
+            telemetry.addData("🤖 Auto-Ball System", "DISABLED");
+        }
+        
         // Show ball colors if detected
         if (ballAtIntake) {
             String ballColor = getBallColor(intakeColors);
@@ -717,6 +766,94 @@ public class TeleOpDECODE extends LinearOpMode {
         } else {
             return "UNKNOWN";
         }
+    }
+    
+    private void handleAutoBallManagement() {
+        // Only run auto-ball management if system is enabled and intake is running
+        if (!autoBallSystemEnabled || Math.abs(intake.getPower()) < 0.1 || indexorIsRunning) {
+            return;
+        }
+        
+        // Read current ball positions
+        NormalizedRGBA intakeColors = colorSensorIntake.getNormalizedColors();
+        NormalizedRGBA fireColors = colorSensorFire.getNormalizedColors();
+        NormalizedRGBA storeColors = colorSensorStore.getNormalizedColors();
+        
+        boolean ballAtIntake = detectBall(intakeColors);
+        boolean ballAtFire = detectBall(fireColors);
+        boolean ballAtStore = detectBall(storeColors);
+        
+        // Update all positions filled status
+        allPositionsFilled = ballAtIntake && ballAtFire && ballAtStore;
+        
+        // If all positions are filled, auto-stop intake
+        if (allPositionsFilled && !intakeAutoStopped) {
+            intake.setPower(0);
+            conveyor.setPower(0);
+            intakeAutoStopped = true;
+            telemetry.addData("🤖 AUTO-STOP", "All indexor positions filled! Intake stopped.");
+            telemetry.addData("Status", "🎯 Ready to fire! Press A to restart intake.");
+            return;
+        }
+        
+        // Check for new ball detection at intake (edge detection)
+        boolean newBallAtIntake = ballAtIntake && !previousBallAtIntake;
+        
+        // Trigger indexor if new ball detected at intake and there's space to advance
+        if (newBallAtIntake && ballDetectionTimer.seconds() > BALL_DETECTION_DEBOUNCE) {
+            if (!ballAtFire || !ballAtStore) {
+                // There's space in the indexor, advance the ball
+                runAutoIndexor("New ball detected at intake");
+                ballDetectionTimer.reset();
+            }
+        }
+        
+        // Check if we need to advance balls that are already in the system
+        else if (ballDetectionTimer.seconds() > BALL_DETECTION_DEBOUNCE * 2) {
+            // Ball at intake but fire position empty - advance
+            if (ballAtIntake && !ballAtFire) {
+                runAutoIndexor("Intake has ball, fire position empty");
+                ballDetectionTimer.reset();
+            }
+            // Ball at fire but store position empty - advance
+            else if (ballAtFire && !ballAtStore) {
+                runAutoIndexor("Fire has ball, store position empty");
+                ballDetectionTimer.reset();
+            }
+        }
+        
+        // Update previous states for edge detection
+        previousBallAtIntake = ballAtIntake;
+        previousBallAtFire = ballAtFire;
+        previousBallAtStore = ballAtStore;
+    }
+    
+    private void runAutoIndexor(String reason) {
+        // Run indexor automatically with the standard tick count
+        int currentPosition = indexor.getCurrentPosition();
+        int targetPosition = currentPosition + INDEXOR_TICKS;
+        
+        indexor.setTargetPosition(targetPosition);
+        indexor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+        indexor.setPower(AUTO_INDEXOR_POWER);
+        
+        // Start stuck detection tracking
+        indexorTimer.reset();
+        indexorProgressTimer.reset();
+        lastIndexorPosition = currentPosition;
+        indexorTargetPosition = targetPosition;
+        indexorOriginalTarget = targetPosition;
+        indexorIsRunning = true;
+        indexorIsRecovering = false;
+        indexorRecoveryAttempts = 0;
+        
+        // Keep conveyor running since intake is already running
+        if (Math.abs(conveyor.getPower()) < 0.1) {
+            conveyor.setPower(CONVEYOR_POWER);
+        }
+        
+        telemetry.addData("🤖 AUTO-INDEXOR", "Triggered: %s", reason);
+        telemetry.addData("Indexor", "Auto-moving to position: %d", targetPosition);
     }
 
     private void updateTelemetry() {
@@ -771,6 +908,7 @@ public class TeleOpDECODE extends LinearOpMode {
         telemetry.addData("DPad Down", "Manual Light Off Test");
         telemetry.addData("DPad Left", "Manual White Light Test");
         telemetry.addData("DPad Right", "Manual Test Position");
+        telemetry.addData("Back Button", "Toggle Auto-Ball Management System");
         
         // Enhanced indexor status with stuck detection info
         if (indexorIsRunning && indexor.isBusy()) {
