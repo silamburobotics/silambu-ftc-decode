@@ -62,6 +62,13 @@ public class TeleOpDECODE extends LinearOpMode {
     private boolean previousB = false;
     private boolean isAlignedToTag = false; // Track if robot is aligned to AprilTag
     
+    // Shooter state tracking
+    private boolean shooterIntentionallyRunning = false; // Track if shooter was intentionally started
+    
+    // Trigger servo management
+    private boolean manualTriggerControl = false; // Track if trigger is under manual control
+    private ElapsedTime triggerManualTimer = new ElapsedTime(); // Timer for manual control timeout
+    
     // Auto-ball management system variables
     private boolean autoBallSystemEnabled = true;  // Enable automatic ball management
     private boolean previousBallAtIntake = false;  // Previous ball detection state
@@ -124,6 +131,9 @@ public class TeleOpDECODE extends LinearOpMode {
     public static final double BALL_DETECTION_DEBOUNCE = 0.3; // Seconds to wait before confirming ball detection
     public static final double AUTO_INDEXOR_POWER = 0.3;      // Power for automatic indexor movement
     
+    // Trigger servo automatic management settings
+    public static final double MANUAL_TRIGGER_TIMEOUT = 3.0;  // Seconds before auto-management resumes
+    
     // Shooter velocity control (ticks per second)
     public static double SHOOTER_TARGET_VELOCITY = 1600; // Range: 1200-1800 ticks/sec
     
@@ -151,6 +161,7 @@ public class TeleOpDECODE extends LinearOpMode {
         telemetry.addData("Instructions", "Back = Toggle Auto-Ball System");
         telemetry.addData("AprilTag", "Looking for Blue ID %d", TARGET_TAG_ID);
         telemetry.addData("🤖 Auto-Ball System", "Auto-advances balls when intake running");
+        telemetry.addData("🤖 Auto-Trigger", "Keeps trigger HOME when intake running");
         telemetry.update();
         
         waitForStart();
@@ -163,6 +174,7 @@ public class TeleOpDECODE extends LinearOpMode {
             checkIndexorCompletion();
             readColorSensors();
             handleAutoBallManagement(); // Automatic ball management system
+            manageTriggerPosition(); // Automatic trigger position management
             updateSpeedLight();
             updateTelemetry();
             sleep(20); // Small delay to prevent excessive CPU usage
@@ -622,13 +634,12 @@ public class TeleOpDECODE extends LinearOpMode {
     }
     
     private void toggleShooter() {
-        // Check if shooter is running
-        boolean isRunning = Math.abs(shooter.getVelocity()) > 50; // Check velocity instead of power
-        
-        if (isRunning) {
+        // Check if shooter is intentionally running (not just coasting)
+        if (shooterIntentionallyRunning) {
             // Stop shooter and shooter servo
             shooter.setVelocity(0);
             shooterServo.setPower(0);
+            shooterIntentionallyRunning = false;
             // Turn off speed light when shooter stops
             speedLight.setPosition(LIGHT_OFF_POSITION);
             telemetry.addData("Shooter", "STOPPED");
@@ -638,6 +649,7 @@ public class TeleOpDECODE extends LinearOpMode {
             // Start shooter with target velocity and shooter servo
             shooter.setVelocity(SHOOTER_TARGET_VELOCITY);
             shooterServo.setPower(SHOOTER_SERVO_POWER);
+            shooterIntentionallyRunning = true;
             telemetry.addData("Shooter", "RUNNING at %.0f ticks/sec", SHOOTER_TARGET_VELOCITY);
             telemetry.addData("Shooter Servo", "RUNNING at %.2f power", SHOOTER_SERVO_POWER);
             telemetry.addData("Speed Light", "Monitoring speed...");
@@ -646,6 +658,10 @@ public class TeleOpDECODE extends LinearOpMode {
     }
     
     private void toggleTriggerServo() {
+        // Mark as manual control and reset timer
+        manualTriggerControl = true;
+        triggerManualTimer.reset();
+        
         // Check for AprilTag alignment for optimal firing
         if (!isAlignedToTag) {
             telemetry.addData("Trigger Servo", "MANUAL MODE - No AprilTag alignment");
@@ -862,6 +878,28 @@ public class TeleOpDECODE extends LinearOpMode {
         telemetry.addData("🤖 AUTO-INDEXOR", "Triggered: %s", reason);
         telemetry.addData("Indexor", "Auto-moving to position: %d", targetPosition);
     }
+    
+    private void manageTriggerPosition() {
+        // Check if manual control timeout has expired
+        if (manualTriggerControl && triggerManualTimer.seconds() > MANUAL_TRIGGER_TIMEOUT) {
+            manualTriggerControl = false;
+        }
+        
+        // Only auto-manage trigger if not under manual control
+        if (!manualTriggerControl) {
+            boolean intakeRunning = Math.abs(intake.getPower()) > 0.1;
+            
+            if (intakeRunning) {
+                // Keep trigger in home position when intake is running
+                double currentPosition = triggerServo.getPosition();
+                if (Math.abs(currentPosition - TRIGGER_FIRE) > 0.05) {
+                    triggerServo.setPosition(TRIGGER_FIRE);
+                    telemetry.addData("🤖 AUTO-TRIGGER", "Set to HOME position (intake running)");
+                }
+            }
+            // Note: We don't auto-move to fire position to avoid accidental firing
+        }
+    }
 
     private void updateTelemetry() {
         // Display motor status
@@ -871,11 +909,23 @@ public class TeleOpDECODE extends LinearOpMode {
         telemetry.addData("Intake Power", "%.2f", intake.getPower());
         telemetry.addData("Shooter Velocity", "%.0f / %.0f ticks/sec", 
                          shooter.getVelocity(), SHOOTER_TARGET_VELOCITY);
+        telemetry.addData("Shooter Status", shooterIntentionallyRunning ? "RUNNING" : "STOPPED");
         telemetry.addData("Shooter Power", "%.2f", shooter.getPower());
         telemetry.addData("Converyor Power", "%.2f", conveyor.getPower());
         telemetry.addData("Shooter Servo Power", "%.2f", shooterServo.getPower());
         telemetry.addData("Trigger Servo Position", "%.3f (%.0f°)", 
                          triggerServo.getPosition(), triggerServo.getPosition() * 180);
+        
+        // Trigger management status
+        boolean intakeRunning = Math.abs(intake.getPower()) > 0.1;
+        if (manualTriggerControl) {
+            double timeLeft = MANUAL_TRIGGER_TIMEOUT - triggerManualTimer.seconds();
+            telemetry.addData("🎮 Trigger Control", "MANUAL (%.1fs left)", Math.max(0, timeLeft));
+        } else if (intakeRunning) {
+            telemetry.addData("🤖 Trigger Control", "AUTO - HOME position (intake running)");
+        } else {
+            telemetry.addData("🤖 Trigger Control", "AUTO - Ready for manual control");
+        }
         
         // Display speed light status
         double currentVelocity = Math.abs(shooter.getVelocity());
