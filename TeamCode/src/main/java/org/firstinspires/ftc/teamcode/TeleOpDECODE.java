@@ -715,7 +715,7 @@ public class TeleOpDECODE extends LinearOpMode {
             telemetry.addData("🤖 Auto-Ball System", "ACTIVE - Managing balls");
             telemetry.addData("All Positions", allPositionsFilled ? "✅ FILLED" : "⏳ Loading...");
             if (allPositionsFilled) {
-                telemetry.addData("Status", "🛑 Intake auto-stopped - All loaded!");
+                telemetry.addData("Status", "🛑 Intake & Indexor auto-stopped - All loaded!");
             } else {
                 telemetry.addData("Status", "🔄 Auto-advancing balls as detected");
             }
@@ -786,12 +786,19 @@ public class TeleOpDECODE extends LinearOpMode {
         // Update all positions filled status
         allPositionsFilled = ballAtIntake && ballAtFire && ballAtStore;
         
-        // If all positions are filled, auto-stop intake
+        // If all positions are filled, auto-stop intake and indexor
         if (allPositionsFilled && !intakeAutoStopped) {
             intake.setPower(0);
             conveyor.setPower(0);
+            // Stop indexor if it's running
+            if (indexorIsRunning) {
+                indexor.setPower(0);
+                indexor.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
+                indexorIsRunning = false;
+                indexorIsRecovering = false;
+            }
             intakeAutoStopped = true;
-            telemetry.addData("🤖 AUTO-STOP", "All indexor positions filled! Intake stopped.");
+            telemetry.addData("🤖 AUTO-STOP", "All indexor positions filled! Intake & Indexor stopped.");
             telemetry.addData("Status", "🎯 Ready to fire! Press A to restart intake.");
             return;
         }
