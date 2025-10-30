@@ -62,6 +62,12 @@ public class TeleOpDECODE extends LinearOpMode {
     private boolean previousB = false;
     private boolean isAlignedToTag = false; // Track if robot is aligned to AprilTag
     
+    // AprilTag search rotation
+    private boolean searchRotationActive = false; // Track if 360° search is active
+    private ElapsedTime searchRotationTimer = new ElapsedTime(); // Timer for search rotation
+    private double searchStartHeading = 0; // Starting heading for 360° rotation
+    private boolean searchTagFound = false; // Track if tag was found during search
+    
     // Gamepad2 button states for operator controls
     private boolean previousX2 = false;
     private boolean previousY2 = false;
@@ -151,6 +157,11 @@ public class TeleOpDECODE extends LinearOpMode {
     public static final double ALIGNMENT_POSITION_TOLERANCE = 2.0; // inches for position alignment
     public static final double ALIGNMENT_HEADING_TOLERANCE = 3.0;  // degrees for heading alignment
     
+    // AprilTag search rotation settings
+    public static final double SEARCH_ROTATION_POWER = 0.3;   // Power for 360° search rotation
+    public static final double SEARCH_ROTATION_TIMEOUT = 10.0; // Maximum time for 360° search (seconds)
+    public static final double SEARCH_COMPLETE_ANGLE = 355.0;  // Degrees to consider full rotation (slightly less than 360)
+    
     // Camera-based alignment settings (pixel coordinates)
     public static final double CAMERA_CENTER_X = 320.0;      // Camera center X (640/2)
     public static final double CAMERA_CENTER_Y = 240.0;      // Camera center Y (480/2)
@@ -178,6 +189,7 @@ public class TeleOpDECODE extends LinearOpMode {
         telemetry.addData("Status", "Initialized");
         telemetry.addData("=== GAMEPAD 1 (DRIVER) ===", "");
         telemetry.addData("A Button", "Intake + Converyor");
+        telemetry.addData("X Button", "360° AprilTag Search");
         telemetry.addData("Left Stick", "Drive/Strafe");
         telemetry.addData("Right Stick X", "Turn");
         telemetry.addData("Back Button", "Toggle Auto-Ball System");
@@ -196,11 +208,12 @@ public class TeleOpDECODE extends LinearOpMode {
         // Run until the end of the match (driver presses STOP)
         while (opModeIsActive()) {
             handleControllerInputs();
-            if (!autoAlignmentActive) {
-                handleMecanumDrive(); // Only manual drive if not auto-aligning
+            if (!autoAlignmentActive && !searchRotationActive) {
+                handleMecanumDrive(); // Only manual drive if not auto-aligning or searching
             }
             handleAprilTagAlignment();
             handleAutoAlignment(); // AprilTag auto-alignment system
+            handleAprilTagSearch(); // AprilTag 360° search system
             checkIndexorCompletion();
             readColorSensors();
             handleAutoBallManagement(); // Automatic ball management system
@@ -398,6 +411,7 @@ public class TeleOpDECODE extends LinearOpMode {
     private void handleControllerInputs() {
         // Get current button states for gamepad1 (driver)
         boolean currentA = gamepad1.a;
+        boolean currentX = gamepad1.x;
         
         // Get current button states for gamepad2 (operator)
         boolean currentX2 = gamepad2.x;
@@ -438,6 +452,11 @@ public class TeleOpDECODE extends LinearOpMode {
             toggleIntakeAndConveryor();
         }
         
+        // Handle X button on gamepad1 - Start 360° AprilTag search
+        if (currentX && !previousX) {
+            toggleAprilTagSearch();
+        }
+        
         // Handle A button on gamepad2 - Toggle AprilTag Auto-Alignment
         if (currentA2 && !previousA2) {
             toggleAutoAlignment();
@@ -455,6 +474,7 @@ public class TeleOpDECODE extends LinearOpMode {
         
         // Update previous button states
         previousA = currentA;
+        previousX = currentX;
         previousX2 = currentX2;
         previousY2 = currentY2;
         previousB2 = currentB2;
@@ -969,6 +989,10 @@ public class TeleOpDECODE extends LinearOpMode {
     }
     
     private void handleAutoAlignment() {
+        // Debug: Always show auto-alignment status
+        telemetry.addData("🤖 Auto-Alignment", "Active: %s (Timer: %.1fs)", 
+            autoAlignmentActive ? "YES" : "NO", autoAlignmentTimer.seconds());
+        
         // Check if auto-alignment should timeout
         if (autoAlignmentActive && autoAlignmentTimer.seconds() > AUTO_ALIGNMENT_TIMEOUT) {
             autoAlignmentActive = false;
@@ -989,12 +1013,13 @@ public class TeleOpDECODE extends LinearOpMode {
         boolean targetFound = false;
         
         // Debug: Show total detections
-        telemetry.addData("🔍 Detections", "%d tags found", currentDetections.size());
+        telemetry.addData("🔍 Vision Status", "%d tags detected", currentDetections.size());
         
         // List all detected tags for debugging
         for (AprilTagDetection detection : currentDetections) {
             if (detection.metadata != null) {
-                telemetry.addData("📷 Detected", "Tag ID %d", detection.id);
+                telemetry.addData("📷 Visible Tag", "ID %d at range %.1f inches", 
+                    detection.id, detection.ftcPose.range);
             }
         }
         
@@ -1019,6 +1044,9 @@ public class TeleOpDECODE extends LinearOpMode {
                 telemetry.addData("🎯 Camera Center", "X:%.0f Y:%.0f pixels", CAMERA_CENTER_X, CAMERA_CENTER_Y);
                 telemetry.addData("📐 Pixel Error", "X:%.0f Y:%.0f pixels", xPixelError, yPixelError);
                 telemetry.addData("📏 Range", "%.1f inches", range);
+                telemetry.addData("🧭 Bearing Angle", "%.1f degrees", detection.ftcPose.bearing);
+                telemetry.addData("📐 Elevation", "%.1f degrees", detection.ftcPose.elevation);
+                telemetry.addData("🔄 Tag Yaw", "%.1f degrees", detection.ftcPose.yaw);
                 
                 // Calculate drive powers for alignment
                 double drivePower = 0;
@@ -1210,5 +1238,89 @@ public class TeleOpDECODE extends LinearOpMode {
         }
         
         telemetry.update();
+    }
+    
+    private void toggleAprilTagSearch() {
+        if (searchRotationActive) {
+            // Stop the search
+            searchRotationActive = false;
+            searchTagFound = false;
+            leftFront.setPower(0);
+            rightFront.setPower(0);
+            leftBack.setPower(0);
+            rightBack.setPower(0);
+            telemetry.addData("🔍 AprilTag Search", "STOPPED by driver");
+            telemetry.update();
+        } else {
+            // Start the 360° search
+            searchRotationActive = true;
+            searchTagFound = false;
+            searchRotationTimer.reset();
+            telemetry.addData("🔍 AprilTag Search", "STARTED - Rotating 360° to find AprilTag %d", TARGET_TAG_ID);
+            telemetry.addData("💡 Tip", "Robot will stop when tag is found");
+            telemetry.update();
+        }
+    }
+    
+    private void handleAprilTagSearch() {
+        if (!searchRotationActive) {
+            return;
+        }
+        
+        // Check for timeout
+        if (searchRotationTimer.seconds() > SEARCH_ROTATION_TIMEOUT) {
+            searchRotationActive = false;
+            searchTagFound = false;
+            leftFront.setPower(0);
+            rightFront.setPower(0);
+            leftBack.setPower(0);
+            rightBack.setPower(0);
+            telemetry.addData("🔍 AprilTag Search", "TIMEOUT - No tag found in 360°");
+            return;
+        }
+        
+        // Check if AprilTag 20 is detected
+        List<AprilTagDetection> currentDetections = aprilTag.getDetections();
+        boolean targetFound = false;
+        
+        for (AprilTagDetection detection : currentDetections) {
+            if (detection.metadata != null && detection.id == TARGET_TAG_ID) {
+                targetFound = true;
+                searchTagFound = true;
+                searchRotationActive = false;
+                
+                // Stop rotation
+                leftFront.setPower(0);
+                rightFront.setPower(0);
+                leftBack.setPower(0);
+                rightBack.setPower(0);
+                
+                telemetry.addData("🔍 AprilTag Search", "✅ SUCCESS! Found AprilTag %d", TARGET_TAG_ID);
+                telemetry.addData("📏 Range", "%.1f inches", detection.ftcPose.range);
+                telemetry.addData("🧭 Bearing", "%.1f degrees", detection.ftcPose.bearing);
+                telemetry.addData("💡 Next Step", "Press A on gamepad2 for auto-alignment");
+                return;
+            }
+        }
+        
+        if (!targetFound) {
+            // Continue rotating clockwise
+            double rotationPower = SEARCH_ROTATION_POWER;
+            leftFront.setPower(rotationPower);
+            rightFront.setPower(-rotationPower);
+            leftBack.setPower(rotationPower);
+            rightBack.setPower(-rotationPower);
+            
+            telemetry.addData("🔍 AprilTag Search", "🔄 Rotating... (%.1fs)", searchRotationTimer.seconds());
+            telemetry.addData("🎯 Target", "Looking for AprilTag %d", TARGET_TAG_ID);
+            telemetry.addData("👁️ Detections", "%d tags visible", currentDetections.size());
+            
+            // Show any visible tags
+            for (AprilTagDetection detection : currentDetections) {
+                if (detection.metadata != null) {
+                    telemetry.addData("📷 Visible", "Tag ID %d", detection.id);
+                }
+            }
+        }
     }
 }
