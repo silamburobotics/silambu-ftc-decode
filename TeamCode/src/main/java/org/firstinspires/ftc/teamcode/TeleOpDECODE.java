@@ -201,6 +201,7 @@ public class TeleOpDECODE extends LinearOpMode {
             }
             handleAprilTagAlignment();
             handleAutoAlignment(); // AprilTag auto-alignment system
+            showAprilTagDebugInfo(); // Always show detected tag IDs
             checkIndexorCompletion();
             readColorSensors();
             handleAutoBallManagement(); // Automatic ball management system
@@ -994,7 +995,8 @@ public class TeleOpDECODE extends LinearOpMode {
         // List all detected tags for debugging
         for (AprilTagDetection detection : currentDetections) {
             if (detection.metadata != null) {
-                telemetry.addData("📷 Detected", "Tag ID %d", detection.id);
+                telemetry.addData("📷 Detected Tag", "ID %d (Range: %.1f inches)", 
+                    detection.id, detection.ftcPose.range);
             }
         }
         
@@ -1210,5 +1212,60 @@ public class TeleOpDECODE extends LinearOpMode {
         }
         
         telemetry.update();
+    }
+    
+    private void showAprilTagDebugInfo() {
+        // Get current detections for debugging
+        List<AprilTagDetection> currentDetections = aprilTag.getDetections();
+        
+        // Always show detection summary at top level for easy debugging
+        telemetry.addData("🔍 AprilTag Debug", "=== DETECTED TAGS ===");
+        telemetry.addData("📊 Total Detections", "%d tags visible", currentDetections.size());
+        
+        if (currentDetections.size() == 0) {
+            telemetry.addData("❌ No Tags", "No AprilTags detected");
+            telemetry.addData("💡 Check", "Camera angle, lighting, distance");
+        } else {
+            // Show detailed info for each detected tag
+            for (int i = 0; i < currentDetections.size(); i++) {
+                AprilTagDetection detection = currentDetections.get(i);
+                if (detection.metadata != null) {
+                    boolean isTargetTag = (detection.id == TARGET_TAG_ID);
+                    String targetIndicator = isTargetTag ? " ⭐ TARGET" : "";
+                    
+                    telemetry.addData(String.format("🏷️ Tag #%d", i + 1), 
+                        "ID %d%s", detection.id, targetIndicator);
+                    telemetry.addData(String.format("📏 Tag #%d Range", i + 1), 
+                        "%.1f inches", detection.ftcPose.range);
+                    telemetry.addData(String.format("🧭 Tag #%d Bearing", i + 1), 
+                        "%.1f degrees", detection.ftcPose.bearing);
+                    
+                    if (isTargetTag) {
+                        telemetry.addData("🎯 Target Status", "FOUND! Ready for alignment");
+                    }
+                }
+            }
+            
+            // Show list of all IDs in a compact format
+            StringBuilder idList = new StringBuilder();
+            for (AprilTagDetection detection : currentDetections) {
+                if (detection.metadata != null) {
+                    if (idList.length() > 0) idList.append(", ");
+                    idList.append(detection.id);
+                    if (detection.id == TARGET_TAG_ID) {
+                        idList.append("⭐");
+                    }
+                }
+            }
+            telemetry.addData("📋 All Tag IDs", idList.toString());
+        }
+        
+        // Show camera status
+        if (visionPortal != null) {
+            telemetry.addData("📷 Camera Status", "Active (640x480)");
+            telemetry.addData("🔧 Processing", "TAG_36h11 family");
+        } else {
+            telemetry.addData("❌ Camera Status", "Vision portal not initialized");
+        }
     }
 }
