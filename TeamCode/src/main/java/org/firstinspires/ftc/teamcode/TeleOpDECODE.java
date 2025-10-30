@@ -66,6 +66,7 @@ public class TeleOpDECODE extends LinearOpMode {
     private boolean previousX2 = false;
     private boolean previousY2 = false;
     private boolean previousB2 = false;
+    private boolean previousA2 = false;
     
     // Shooter state tracking
     private boolean shooterIntentionallyRunning = false; // Track if shooter was intentionally started
@@ -73,6 +74,10 @@ public class TeleOpDECODE extends LinearOpMode {
     // Trigger servo management
     private boolean manualTriggerControl = false; // Track if trigger is under manual control
     private ElapsedTime triggerManualTimer = new ElapsedTime(); // Timer for manual control timeout
+    
+    // AprilTag auto-alignment
+    private boolean autoAlignmentActive = false; // Track if auto-alignment is active
+    private ElapsedTime autoAlignmentTimer = new ElapsedTime(); // Timer for alignment timeout
     
     // Auto-ball management system variables
     private boolean autoBallSystemEnabled = true;  // Enable automatic ball management
@@ -139,6 +144,11 @@ public class TeleOpDECODE extends LinearOpMode {
     // Trigger servo automatic management settings
     public static final double MANUAL_TRIGGER_TIMEOUT = 3.0;  // Seconds before auto-management resumes
     
+    // AprilTag auto-alignment settings
+    public static final double AUTO_ALIGNMENT_TIMEOUT = 5.0;  // Seconds before auto-alignment stops
+    public static final double ALIGNMENT_DRIVE_POWER = 0.3;   // Power for alignment movements
+    public static final double ALIGNMENT_TURN_POWER = 0.25;   // Power for alignment rotation
+    
     // Shooter velocity control (ticks per second)
     public static double SHOOTER_TARGET_VELOCITY = 1600; // Range: 1200-1800 ticks/sec
     
@@ -164,6 +174,7 @@ public class TeleOpDECODE extends LinearOpMode {
         telemetry.addData("Right Stick X", "Turn");
         telemetry.addData("Back Button", "Toggle Auto-Ball System");
         telemetry.addData("=== GAMEPAD 2 (OPERATOR) ===", "");
+        telemetry.addData("A Button", "Auto-Align to AprilTag 20");
         telemetry.addData("X Button", "Indexor (120 degrees)");
         telemetry.addData("Y Button", "Shooter + Shooter Servo");
         telemetry.addData("B Button", "Trigger Servo (60-120°)");
@@ -177,8 +188,11 @@ public class TeleOpDECODE extends LinearOpMode {
         // Run until the end of the match (driver presses STOP)
         while (opModeIsActive()) {
             handleControllerInputs();
-            handleMecanumDrive();
+            if (!autoAlignmentActive) {
+                handleMecanumDrive(); // Only manual drive if not auto-aligning
+            }
             handleAprilTagAlignment();
+            handleAutoAlignment(); // AprilTag auto-alignment system
             checkIndexorCompletion();
             readColorSensors();
             handleAutoBallManagement(); // Automatic ball management system
@@ -372,6 +386,7 @@ public class TeleOpDECODE extends LinearOpMode {
         boolean currentX2 = gamepad2.x;
         boolean currentY2 = gamepad2.y;
         boolean currentB2 = gamepad2.b;
+        boolean currentA2 = gamepad2.a;
         
         // Manual light testing with dpad (for debugging)
         if (gamepad1.dpad_up) {
@@ -406,6 +421,11 @@ public class TeleOpDECODE extends LinearOpMode {
             toggleIntakeAndConveryor();
         }
         
+        // Handle A button on gamepad2 - Toggle AprilTag Auto-Alignment
+        if (currentA2 && !previousA2) {
+            toggleAutoAlignment();
+        }
+        
         // Handle Y button on gamepad2 - Toggle Shooter
         if (currentY2 && !previousY2) {
             toggleShooter();
@@ -421,6 +441,7 @@ public class TeleOpDECODE extends LinearOpMode {
         previousX2 = currentX2;
         previousY2 = currentY2;
         previousB2 = currentB2;
+        previousA2 = currentA2;
     }
     
     private void handleMecanumDrive() {
@@ -909,6 +930,117 @@ public class TeleOpDECODE extends LinearOpMode {
             // Note: We don't auto-move to fire position to avoid accidental firing
         }
     }
+    
+    private void toggleAutoAlignment() {
+        if (autoAlignmentActive) {
+            // Stop auto-alignment
+            autoAlignmentActive = false;
+            // Stop all drive motors
+            leftFront.setPower(0);
+            rightFront.setPower(0);
+            leftBack.setPower(0);
+            rightBack.setPower(0);
+            telemetry.addData("🎯 Auto-Alignment", "STOPPED - Manual control resumed");
+        } else {
+            // Start auto-alignment
+            autoAlignmentActive = true;
+            autoAlignmentTimer.reset();
+            telemetry.addData("🎯 Auto-Alignment", "ACTIVE - Searching for AprilTag %d", TARGET_TAG_ID);
+        }
+    }
+    
+    private void handleAutoAlignment() {
+        // Check if auto-alignment should timeout
+        if (autoAlignmentActive && autoAlignmentTimer.seconds() > AUTO_ALIGNMENT_TIMEOUT) {
+            autoAlignmentActive = false;
+            leftFront.setPower(0);
+            rightFront.setPower(0);
+            leftBack.setPower(0);
+            rightBack.setPower(0);
+            telemetry.addData("🎯 Auto-Alignment", "TIMEOUT - Manual control resumed");
+            return;
+        }
+        
+        // Only run auto-alignment if active
+        if (!autoAlignmentActive) {
+            return;
+        }
+        
+        List<AprilTagDetection> currentDetections = aprilTag.getDetections();
+        boolean targetFound = false;
+        
+        // Look for the target tag
+        for (AprilTagDetection detection : currentDetections) {
+            if (detection.metadata != null && detection.id == TARGET_TAG_ID) {
+                targetFound = true;
+                
+                // Get alignment errors
+                double xOffset = detection.ftcPose.x;     // Left/right offset
+                double yOffset = detection.ftcPose.y;     // Forward/back offset  
+                double headingError = detection.ftcPose.yaw; // Rotation error
+                
+                // Calculate drive powers for alignment
+                double drivePower = 0;
+                double strafePower = 0;
+                double turnPower = 0;
+                
+                // Forward/backward alignment (Y offset)
+                if (Math.abs(yOffset) > ALIGNMENT_TOLERANCE) {
+                    drivePower = -Math.signum(yOffset) * ALIGNMENT_DRIVE_POWER;
+                }
+                
+                // Left/right alignment (X offset)
+                if (Math.abs(xOffset) > ALIGNMENT_TOLERANCE) {
+                    strafePower = -Math.signum(xOffset) * ALIGNMENT_DRIVE_POWER;
+                }
+                
+                // Rotation alignment (heading error)
+                if (Math.abs(headingError) > HEADING_TOLERANCE) {
+                    turnPower = Math.signum(headingError) * ALIGNMENT_TURN_POWER;
+                }
+                
+                // Check if aligned
+                boolean aligned = Math.abs(xOffset) < ALIGNMENT_TOLERANCE && 
+                                Math.abs(yOffset) < ALIGNMENT_TOLERANCE && 
+                                Math.abs(headingError) < HEADING_TOLERANCE;
+                
+                if (aligned) {
+                    // Perfect alignment achieved!
+                    autoAlignmentActive = false;
+                    leftFront.setPower(0);
+                    rightFront.setPower(0);
+                    leftBack.setPower(0);
+                    rightBack.setPower(0);
+                    telemetry.addData("🎯 Auto-Alignment", "✅ ALIGNED! Ready to fire!");
+                } else {
+                    // Apply alignment movements
+                    double frontLeftPower = drivePower + strafePower + turnPower;
+                    double frontRightPower = drivePower - strafePower - turnPower;
+                    double backLeftPower = drivePower - strafePower + turnPower;
+                    double backRightPower = drivePower + strafePower - turnPower;
+                    
+                    leftFront.setPower(frontLeftPower);
+                    rightFront.setPower(frontRightPower);
+                    leftBack.setPower(backLeftPower);
+                    rightBack.setPower(backRightPower);
+                    
+                    telemetry.addData("🎯 Auto-Alignment", "Adjusting... X:%.1f Y:%.1f H:%.1f", 
+                                    xOffset, yOffset, headingError);
+                }
+                
+                break; // Found our tag, no need to check others
+            }
+        }
+        
+        if (!targetFound) {
+            // Target tag not found, stop movement
+            leftFront.setPower(0);
+            rightFront.setPower(0);
+            leftBack.setPower(0);
+            rightBack.setPower(0);
+            telemetry.addData("🎯 Auto-Alignment", "⚠️ Searching for AprilTag %d...", TARGET_TAG_ID);
+        }
+    }
 
     private void updateTelemetry() {
         // Display motor status
@@ -971,6 +1103,7 @@ public class TeleOpDECODE extends LinearOpMode {
         telemetry.addData("DPad", "Manual Light Tests");
         telemetry.addData("", "");
         telemetry.addData("=== GAMEPAD 2 (OPERATOR) ===", "");
+        telemetry.addData("A Button", "Toggle Auto-Align to AprilTag 20");
         telemetry.addData("X Button", "Move Indexor 120 degrees");
         telemetry.addData("Y Button", "Toggle Shooter + Shooter Servo");
         telemetry.addData("B Button", "Toggle Trigger Servo (60-120°)");
