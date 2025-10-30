@@ -157,6 +157,10 @@ public class TeleOpDECODE extends LinearOpMode {
     public static final double PIXEL_ALIGNMENT_TOLERANCE = 20.0; // pixels from center
     public static final double PIXEL_ALIGNMENT_POWER = 0.01;    // Power per pixel error (increased from 0.002)
     
+    // Bearing-based alignment settings (angle-based alignment)
+    public static final double BEARING_ALIGNMENT_TOLERANCE = 5.0; // degrees - target bearing tolerance
+    public static final double BEARING_ALIGNMENT_POWER = 0.02;   // Power per degree of bearing error
+    
     // Shooter velocity control (ticks per second)
     public static double SHOOTER_TARGET_VELOCITY = 1600; // Range: 1200-1800 ticks/sec
     
@@ -303,9 +307,10 @@ public class TeleOpDECODE extends LinearOpMode {
     
     private void initializeAprilTag() {
         // Create the AprilTag processor
+        // Initialize AprilTag processor WITHOUT tag library to detect any TAG_36h11 tags
         aprilTag = new AprilTagProcessor.Builder()
                 .setTagFamily(AprilTagProcessor.TagFamily.TAG_36h11)
-                .setTagLibrary(AprilTagGameDatabase.getCenterStageTagLibrary())
+                // .setTagLibrary(AprilTagGameDatabase.getCenterStageTagLibrary()) // Comment out to detect any TAG_36h11
                 .setOutputUnits(DistanceUnit.INCH, AngleUnit.DEGREES)
                 .setLensIntrinsics(578.272, 578.272, 320.0, 240.0) // Optional: camera calibration
                 .build();
@@ -329,8 +334,10 @@ public class TeleOpDECODE extends LinearOpMode {
         visionPortal = builder.build();
         
         telemetry.addData("AprilTag Vision", "Initialized with TAG_36h11 family");
+        telemetry.addData("Tag Library", "NONE - Will detect ANY TAG_36h11 AprilTag");
         telemetry.addData("Target Tag", "Looking for ID %d", TARGET_TAG_ID);
         telemetry.addData("Camera Resolution", "640x480");
+        telemetry.addData("✅ Advantage", "Can detect tags outside CenterStage library");
         telemetry.update();
     }
     
@@ -345,8 +352,8 @@ public class TeleOpDECODE extends LinearOpMode {
         
         // Look for the target tag
         for (AprilTagDetection detection : currentDetections) {
-            if (detection.metadata != null && detection.id == TARGET_TAG_ID) {
-                // Found the target blue tag!
+            if (detection != null && detection.id == TARGET_TAG_ID) {
+                // Found the target tag! (with or without metadata)
                 double xOffset = detection.ftcPose.x;
                 double yOffset = detection.ftcPose.y;
                 double headingError = detection.ftcPose.yaw;
@@ -385,9 +392,9 @@ public class TeleOpDECODE extends LinearOpMode {
         
         // List any tags we can see for debugging
         for (AprilTagDetection detection : currentDetections) {
-            if (detection.metadata != null) {
-                telemetry.addData("👀 Visible Tag", "ID %d at %.1f inches", 
-                    detection.id, detection.ftcPose.range);
+            if (detection != null) {
+                telemetry.addData("👀 Visible Tag", "ID %d at %.1f inches (Meta: %s)", 
+                    detection.id, detection.ftcPose.range, detection.metadata != null ? "Yes" : "No");
             }
         }
         
@@ -986,107 +993,104 @@ public class TeleOpDECODE extends LinearOpMode {
             return;
         }
         
-        List<AprilTagDetection> currentDetections = aprilTag.getDetections();
+        List<AprilTagDetection> currentDetections = null;
         boolean targetFound = false;
+        
+        // Check for null processor
+        if (aprilTag == null) {
+            telemetry.addData("❌ Alignment Error", "AprilTag processor is null");
+            autoAlignmentActive = false;
+            return;
+        }
+        
+        try {
+            currentDetections = aprilTag.getDetections();
+        } catch (Exception e) {
+            telemetry.addData("❌ Alignment Error", "Detection exception: %s", e.getMessage());
+            autoAlignmentActive = false;
+            return;
+        }
+        
+        if (currentDetections == null) {
+            telemetry.addData("❌ Alignment Error", "Detection list is null");
+            autoAlignmentActive = false;
+            return;
+        }
         
         // Debug: Show total detections
         telemetry.addData("🔍 Detections", "%d tags found", currentDetections.size());
         
         // List all detected tags for debugging
         for (AprilTagDetection detection : currentDetections) {
-            if (detection.metadata != null) {
-                telemetry.addData("📷 Detected Tag", "ID %d (Range: %.1f inches)", 
-                    detection.id, detection.ftcPose.range);
+            if (detection != null) {
+                telemetry.addData("📷 Detected Tag", "ID %d (Metadata: %s)", 
+                    detection.id, detection.metadata != null ? "Yes" : "No");
             }
         }
         
         // Look for the target tag
         for (AprilTagDetection detection : currentDetections) {
-            if (detection.metadata != null && detection.id == TARGET_TAG_ID) {
+            // Accept detections with or without metadata (since we're not using tag library)
+            if (detection != null && detection.id == TARGET_TAG_ID) {
                 targetFound = true;
                 
-                // Get pixel coordinates of the tag center
-                double tagCenterX = detection.center.x;  // Tag center X in pixels
-                double tagCenterY = detection.center.y;  // Tag center Y in pixels
-                
-                // Calculate pixel errors from camera center
-                double xPixelError = tagCenterX - CAMERA_CENTER_X;
-                double yPixelError = tagCenterY - CAMERA_CENTER_Y;
-                
-                // Also get pose data for distance information
-                double range = detection.ftcPose.range;   // Distance to tag
+                // Get bearing angle (detection angle) - this is what we want to minimize
+                double bearingAngle = detection.ftcPose.bearing;  // Angle to tag in degrees
+                double range = detection.ftcPose.range;           // Distance to tag
+                double elevation = detection.ftcPose.elevation;   // Up/down angle
                 
                 telemetry.addData("🎯 Target Found", "Tag %d", TARGET_TAG_ID);
-                telemetry.addData("� Tag Position", "X:%.0f Y:%.0f pixels", tagCenterX, tagCenterY);
-                telemetry.addData("🎯 Camera Center", "X:%.0f Y:%.0f pixels", CAMERA_CENTER_X, CAMERA_CENTER_Y);
-                telemetry.addData("📐 Pixel Error", "X:%.0f Y:%.0f pixels", xPixelError, yPixelError);
-                telemetry.addData("📏 Range", "%.1f inches", range);
+                telemetry.addData("🧭 Bearing Angle", "%.1f degrees", bearingAngle);
+                telemetry.addData("🎯 Target Tolerance", "±%.1f degrees", BEARING_ALIGNMENT_TOLERANCE);
+                telemetry.addData("� Range", "%.1f inches", range);
+                telemetry.addData("� Elevation", "%.1f degrees", elevation);
                 
-                // Calculate drive powers for alignment
+                // Calculate drive powers for bearing-based alignment
                 double drivePower = 0;
                 double strafePower = 0;
                 double turnPower = 0;
                 
-                // Strafe to center the tag horizontally (X pixel error)
-                if (Math.abs(xPixelError) > PIXEL_ALIGNMENT_TOLERANCE) {
-                    strafePower = -xPixelError * PIXEL_ALIGNMENT_POWER;
+                // Turn to minimize bearing angle (primary alignment method)
+                if (Math.abs(bearingAngle) > BEARING_ALIGNMENT_TOLERANCE) {
+                    // Turn to reduce bearing angle to zero
+                    turnPower = bearingAngle * BEARING_ALIGNMENT_POWER;
                     // Clamp to max power
-                    strafePower = Math.max(-ALIGNMENT_DRIVE_POWER, 
-                                 Math.min(ALIGNMENT_DRIVE_POWER, strafePower));
-                    telemetry.addData("🔧 Strafe", "%.3f (X error: %.0f px)", strafePower, xPixelError);
-                }
-                
-                // Turn to center the tag horizontally for large errors
-                if (Math.abs(xPixelError) > PIXEL_ALIGNMENT_TOLERANCE * 1.5) {
-                    turnPower = xPixelError * PIXEL_ALIGNMENT_POWER * 0.8;
                     turnPower = Math.max(-ALIGNMENT_TURN_POWER, 
                                Math.min(ALIGNMENT_TURN_POWER, turnPower));
-                    telemetry.addData("🔧 Turn", "%.3f (X error: %.0f px)", turnPower, xPixelError);
+                    telemetry.addData("🔧 Turn Power", "%.3f (Bearing: %.1f°)", turnPower, bearingAngle);
                 }
                 
-                // Drive forward/backward to center vertically (Y pixel error)
-                // Note: Y increases downward in camera coordinates
-                if (Math.abs(yPixelError) > PIXEL_ALIGNMENT_TOLERANCE) {
-                    drivePower = yPixelError * PIXEL_ALIGNMENT_POWER;
-                    drivePower = Math.max(-ALIGNMENT_DRIVE_POWER, 
-                                Math.min(ALIGNMENT_DRIVE_POWER, drivePower));
-                    telemetry.addData("🔧 Drive", "%.3f (Y error: %.0f px)", drivePower, yPixelError);
+                // Optional: Use strafe for fine adjustment if bearing is small but not zero
+                if (Math.abs(bearingAngle) <= BEARING_ALIGNMENT_TOLERANCE * 2 && Math.abs(bearingAngle) > BEARING_ALIGNMENT_TOLERANCE) {
+                    strafePower = bearingAngle * BEARING_ALIGNMENT_POWER * 0.5;
+                    strafePower = Math.max(-ALIGNMENT_DRIVE_POWER * 0.5, 
+                                 Math.min(ALIGNMENT_DRIVE_POWER * 0.5, strafePower));
+                    telemetry.addData("🔧 Fine Strafe", "%.3f (Bearing: %.1f°)", strafePower, bearingAngle);
                 }
                 
                 // Add minimum power if error is significant but calculated power is too small
-                double minPower = 0.15;  // Minimum power to overcome static friction
+                double minTurnPower = 0.12;  // Minimum power to overcome static friction for turning
                 
-                if (Math.abs(xPixelError) > PIXEL_ALIGNMENT_TOLERANCE && Math.abs(strafePower) < minPower) {
-                    strafePower = Math.signum(strafePower) * minPower;
-                    telemetry.addData("🔧 Strafe (Min)", "%.3f applied", strafePower);
+                if (Math.abs(bearingAngle) > BEARING_ALIGNMENT_TOLERANCE && Math.abs(turnPower) < minTurnPower) {
+                    turnPower = Math.signum(turnPower) * minTurnPower;
+                    telemetry.addData("🔧 Min Turn Power", "%.3f applied", turnPower);
                 }
                 
-                if (Math.abs(yPixelError) > PIXEL_ALIGNMENT_TOLERANCE && Math.abs(drivePower) < minPower) {
-                    drivePower = Math.signum(drivePower) * minPower;
-                    telemetry.addData("🔧 Drive (Min)", "%.3f applied", drivePower);
-                }
+                // Check if aligned based on bearing angle
+                boolean bearingAligned = Math.abs(bearingAngle) < BEARING_ALIGNMENT_TOLERANCE;
                 
-                if (Math.abs(xPixelError) > PIXEL_ALIGNMENT_TOLERANCE * 1.5 && Math.abs(turnPower) < minPower * 0.7) {
-                    turnPower = Math.signum(turnPower) * minPower * 0.7;
-                    telemetry.addData("🔧 Turn (Min)", "%.3f applied", turnPower);
-                }
+                telemetry.addData("📊 Bearing Status", "Aligned: %s (%.1f°/%.1f°)", 
+                    bearingAligned ? "✅" : "❌", Math.abs(bearingAngle), BEARING_ALIGNMENT_TOLERANCE);
                 
-                // Check if centered in camera view
-                boolean xCentered = Math.abs(xPixelError) < PIXEL_ALIGNMENT_TOLERANCE;
-                boolean yCentered = Math.abs(yPixelError) < PIXEL_ALIGNMENT_TOLERANCE;
-                boolean fullyCentered = xCentered && yCentered;
-                
-                telemetry.addData("📊 Centering Status", "X:%s Y:%s", 
-                    xCentered ? "✅" : "❌", yCentered ? "✅" : "❌");
-                
-                if (fullyCentered) {
-                    // Perfect centering achieved!
+                if (bearingAligned) {
+                    // Perfect bearing alignment achieved!
                     autoAlignmentActive = false;
                     leftFront.setPower(0);
                     rightFront.setPower(0);
                     leftBack.setPower(0);
                     rightBack.setPower(0);
-                    telemetry.addData("🎯 Auto-Alignment", "✅ PERFECTLY CENTERED! Tag in camera center!");
+                    telemetry.addData("🎯 Auto-Alignment", "✅ BEARING ALIGNED! Angle: %.1f° < %.1f°", 
+                        Math.abs(bearingAngle), BEARING_ALIGNMENT_TOLERANCE);
                 } else {
                     // Apply alignment movements
                     double frontLeftPower = drivePower + strafePower + turnPower;
@@ -1102,7 +1106,7 @@ public class TeleOpDECODE extends LinearOpMode {
                     leftBack.setPower(backLeftPower);
                     rightBack.setPower(backRightPower);
                     
-                    telemetry.addData("🎯 Auto-Alignment", "⚙️ CENTERING TAG...");
+                    telemetry.addData("🎯 Auto-Alignment", "⚙️ ALIGNING TO BEARING...");
                     telemetry.addData("🔧 Motor Powers", "FL:%.3f FR:%.3f BL:%.3f BR:%.3f", 
                         frontLeftPower, frontRightPower, backLeftPower, backRightPower);
                     
@@ -1216,56 +1220,90 @@ public class TeleOpDECODE extends LinearOpMode {
     
     private void showAprilTagDebugInfo() {
         // Get current detections for debugging
-        List<AprilTagDetection> currentDetections = aprilTag.getDetections();
+        List<AprilTagDetection> currentDetections = null;
+        
+        // Check if aprilTag processor is null first
+        if (aprilTag == null) {
+            telemetry.addData("❌ AprilTag Error", "AprilTag processor is null!");
+            telemetry.addData("💡 Fix", "Check initialization in runOpMode()");
+            return;
+        }
+        
+        try {
+            currentDetections = aprilTag.getDetections();
+        } catch (Exception e) {
+            telemetry.addData("❌ Detection Error", "Exception: %s", e.getMessage());
+            return;
+        }
         
         // Always show detection summary at top level for easy debugging
         telemetry.addData("🔍 AprilTag Debug", "=== DETECTED TAGS ===");
-        telemetry.addData("📊 Total Detections", "%d tags visible", currentDetections.size());
+        telemetry.addData("📊 Total Detections", "%d tags visible", currentDetections != null ? currentDetections.size() : 0);
+        
+        // Show vision portal status
+        if (visionPortal != null) {
+            telemetry.addData("📷 Camera Status", "Vision Portal: %s", visionPortal.getCameraState());
+            telemetry.addData("🔧 Processing", "TAG_36h11 family, Target ID: %d", TARGET_TAG_ID);
+        } else {
+            telemetry.addData("❌ Camera Status", "Vision portal is null!");
+        }
+        
+        if (currentDetections == null) {
+            telemetry.addData("❌ Detections", "Detection list is null");
+            return;
+        }
         
         if (currentDetections.size() == 0) {
             telemetry.addData("❌ No Tags", "No AprilTags detected");
             telemetry.addData("💡 Check", "Camera angle, lighting, distance");
+            telemetry.addData("🔍 Troubleshoot", "Make sure tag is TAG_36h11 family");
         } else {
             // Show detailed info for each detected tag
             for (int i = 0; i < currentDetections.size(); i++) {
                 AprilTagDetection detection = currentDetections.get(i);
-                if (detection.metadata != null) {
-                    boolean isTargetTag = (detection.id == TARGET_TAG_ID);
-                    String targetIndicator = isTargetTag ? " ⭐ TARGET" : "";
-                    
-                    telemetry.addData(String.format("🏷️ Tag #%d", i + 1), 
-                        "ID %d%s", detection.id, targetIndicator);
-                    telemetry.addData(String.format("📏 Tag #%d Range", i + 1), 
-                        "%.1f inches", detection.ftcPose.range);
-                    telemetry.addData(String.format("🧭 Tag #%d Bearing", i + 1), 
-                        "%.1f degrees", detection.ftcPose.bearing);
-                    
-                    if (isTargetTag) {
-                        telemetry.addData("🎯 Target Status", "FOUND! Ready for alignment");
-                    }
+                
+                // Check if detection has metadata
+                if (detection == null) {
+                    telemetry.addData(String.format("❌ Tag #%d", i + 1), "Detection is null");
+                    continue;
+                }
+                
+                if (detection.metadata == null) {
+                    telemetry.addData(String.format("⚠️ Tag #%d", i + 1), 
+                        "ID %d (No metadata - may not be in library)", detection.id);
+                    continue;
+                }
+                
+                boolean isTargetTag = (detection.id == TARGET_TAG_ID);
+                String targetIndicator = isTargetTag ? " ⭐ TARGET" : "";
+                
+                telemetry.addData(String.format("🏷️ Tag #%d", i + 1), 
+                    "ID %d%s", detection.id, targetIndicator);
+                telemetry.addData(String.format("📏 Tag #%d Range", i + 1), 
+                    "%.1f inches", detection.ftcPose.range);
+                telemetry.addData(String.format("🧭 Tag #%d Bearing", i + 1), 
+                    "%.1f degrees", detection.ftcPose.bearing);
+                
+                if (isTargetTag) {
+                    telemetry.addData("🎯 Target Status", "FOUND! Ready for alignment");
                 }
             }
             
             // Show list of all IDs in a compact format
             StringBuilder idList = new StringBuilder();
             for (AprilTagDetection detection : currentDetections) {
-                if (detection.metadata != null) {
+                if (detection != null) {
                     if (idList.length() > 0) idList.append(", ");
                     idList.append(detection.id);
                     if (detection.id == TARGET_TAG_ID) {
                         idList.append("⭐");
                     }
+                    if (detection.metadata == null) {
+                        idList.append("(no-meta)");
+                    }
                 }
             }
             telemetry.addData("📋 All Tag IDs", idList.toString());
-        }
-        
-        // Show camera status
-        if (visionPortal != null) {
-            telemetry.addData("📷 Camera Status", "Active (640x480)");
-            telemetry.addData("🔧 Processing", "TAG_36h11 family");
-        } else {
-            telemetry.addData("❌ Camera Status", "Vision portal not initialized");
         }
     }
 }
