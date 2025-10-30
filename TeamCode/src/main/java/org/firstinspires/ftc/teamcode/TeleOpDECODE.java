@@ -148,6 +148,8 @@ public class TeleOpDECODE extends LinearOpMode {
     public static final double AUTO_ALIGNMENT_TIMEOUT = 5.0;  // Seconds before auto-alignment stops
     public static final double ALIGNMENT_DRIVE_POWER = 0.3;   // Power for alignment movements
     public static final double ALIGNMENT_TURN_POWER = 0.25;   // Power for alignment rotation
+    public static final double ALIGNMENT_POSITION_TOLERANCE = 2.0; // inches for position alignment
+    public static final double ALIGNMENT_HEADING_TOLERANCE = 3.0;  // degrees for heading alignment
     
     // Shooter velocity control (ticks per second)
     public static double SHOOTER_TARGET_VELOCITY = 1600; // Range: 1200-1800 ticks/sec
@@ -298,6 +300,7 @@ public class TeleOpDECODE extends LinearOpMode {
                 .setTagFamily(AprilTagProcessor.TagFamily.TAG_36h11)
                 .setTagLibrary(AprilTagGameDatabase.getCenterStageTagLibrary())
                 .setOutputUnits(DistanceUnit.INCH, AngleUnit.DEGREES)
+                .setLensIntrinsics(578.272, 578.272, 320.0, 240.0) // Optional: camera calibration
                 .build();
 
         // Create the vision portal
@@ -309,8 +312,8 @@ public class TeleOpDECODE extends LinearOpMode {
         // Choose a camera resolution
         builder.setCameraResolution(new Size(640, 480));
         
-        // Disable live view to avoid multiple vision portal conflicts
-        builder.enableLiveView(false);
+        // Enable live view for better debugging (you can disable later)
+        builder.enableLiveView(true);
         
         // Set and enable the processor
         builder.addProcessor(aprilTag);
@@ -318,7 +321,9 @@ public class TeleOpDECODE extends LinearOpMode {
         // Build the Vision Portal
         visionPortal = builder.build();
         
-        telemetry.addData("AprilTag Vision", "Initialized - Looking for Blue Tag ID %d", TARGET_TAG_ID);
+        telemetry.addData("AprilTag Vision", "Initialized with TAG_36h11 family");
+        telemetry.addData("Target Tag", "Looking for ID %d", TARGET_TAG_ID);
+        telemetry.addData("Camera Resolution", "640x480");
         telemetry.update();
     }
     
@@ -327,6 +332,9 @@ public class TeleOpDECODE extends LinearOpMode {
         
         // Reset alignment status
         isAlignedToTag = false;
+        
+        // Debug: Always show detection count
+        telemetry.addData("👁️ Vision Status", "%d tags detected", currentDetections.size());
         
         // Look for the target tag
         for (AprilTagDetection detection : currentDetections) {
@@ -337,28 +345,27 @@ public class TeleOpDECODE extends LinearOpMode {
                 double headingError = detection.ftcPose.yaw;
                 
                 // Check if we're aligned within tolerance
-                boolean xAligned = Math.abs(xOffset) < ALIGNMENT_TOLERANCE;
-                boolean yAligned = Math.abs(yOffset) < ALIGNMENT_TOLERANCE;
-                boolean headingAligned = Math.abs(headingError) < HEADING_TOLERANCE;
+                boolean xAligned = Math.abs(xOffset) < ALIGNMENT_POSITION_TOLERANCE;
+                boolean yAligned = Math.abs(yOffset) < ALIGNMENT_POSITION_TOLERANCE;
+                boolean headingAligned = Math.abs(headingError) < ALIGNMENT_HEADING_TOLERANCE;
                 
                 isAlignedToTag = xAligned && yAligned && headingAligned;
                 
                 // Provide alignment feedback
-                telemetry.addData("AprilTag", "FOUND Blue Tag ID %d", TARGET_TAG_ID);
-                telemetry.addData("Position", "X: %.1f, Y: %.1f", xOffset, yOffset);
-                telemetry.addData("Heading Error", "%.1f degrees", headingError);
-                telemetry.addData("Alignment Status", 
+                telemetry.addData("🎯 AprilTag", "FOUND Target ID %d", TARGET_TAG_ID);
+                telemetry.addData("📍 Position", "X: %.1f, Y: %.1f inches", xOffset, yOffset);
+                telemetry.addData("🧭 Heading Error", "%.1f degrees", headingError);
+                telemetry.addData("📏 Range", "%.1f inches", detection.ftcPose.range);
+                telemetry.addData("✅ Alignment Status", 
                     "X: %s, Y: %s, Heading: %s", 
                     xAligned ? "✓" : "✗", 
                     yAligned ? "✓" : "✗", 
                     headingAligned ? "✓" : "✗");
                 
                 if (isAlignedToTag) {
-                    telemetry.addData("READY TO FIRE", "Trigger servo enabled!");
+                    telemetry.addData("🎯 READY TO FIRE", "Perfect alignment achieved!");
                 } else {
-                    telemetry.addData("Status", "Adjusting alignment...");
-                    // Optional: Add automatic alignment control here
-                    // You could use the offset values to automatically adjust robot position
+                    telemetry.addData("⚙️ Status", "Manual adjustments needed...");
                 }
                 
                 return; // Found our tag, no need to check others
@@ -366,15 +373,19 @@ public class TeleOpDECODE extends LinearOpMode {
         }
         
         // If we get here, the target tag wasn't found
-        telemetry.addData("AprilTag", "Searching for Blue Tag ID %d...", TARGET_TAG_ID);
-        telemetry.addData("Tags Detected", "%d total", currentDetections.size());
+        telemetry.addData("🔍 AprilTag", "Searching for Target ID %d...", TARGET_TAG_ID);
+        telemetry.addData("📋 Tags Detected", "%d total", currentDetections.size());
         
-        // List any tags we can see
+        // List any tags we can see for debugging
         for (AprilTagDetection detection : currentDetections) {
             if (detection.metadata != null) {
-                telemetry.addData("Detected Tag", "ID %d at distance %.1f inches", 
+                telemetry.addData("👀 Visible Tag", "ID %d at %.1f inches", 
                     detection.id, detection.ftcPose.range);
             }
+        }
+        
+        if (currentDetections.size() == 0) {
+            telemetry.addData("💡 Tip", "Make sure camera is working and tags are visible");
         }
     }
     
@@ -940,13 +951,15 @@ public class TeleOpDECODE extends LinearOpMode {
             rightFront.setPower(0);
             leftBack.setPower(0);
             rightBack.setPower(0);
-            telemetry.addData("🎯 Auto-Alignment", "STOPPED - Manual control resumed");
+            telemetry.addData("🎯 Auto-Alignment", "STOPPED by operator");
         } else {
             // Start auto-alignment
             autoAlignmentActive = true;
             autoAlignmentTimer.reset();
-            telemetry.addData("🎯 Auto-Alignment", "ACTIVE - Searching for AprilTag %d", TARGET_TAG_ID);
+            telemetry.addData("🎯 Auto-Alignment", "STARTED - Looking for AprilTag %d", TARGET_TAG_ID);
+            telemetry.addData("💡 Tip", "Point camera toward target tag");
         }
+        telemetry.update();
     }
     
     private void handleAutoAlignment() {
@@ -969,49 +982,72 @@ public class TeleOpDECODE extends LinearOpMode {
         List<AprilTagDetection> currentDetections = aprilTag.getDetections();
         boolean targetFound = false;
         
+        // Debug: Show total detections
+        telemetry.addData("🔍 Detections", "%d tags found", currentDetections.size());
+        
+        // List all detected tags for debugging
+        for (AprilTagDetection detection : currentDetections) {
+            if (detection.metadata != null) {
+                telemetry.addData("📷 Detected", "Tag ID %d", detection.id);
+            }
+        }
+        
         // Look for the target tag
         for (AprilTagDetection detection : currentDetections) {
             if (detection.metadata != null && detection.id == TARGET_TAG_ID) {
                 targetFound = true;
                 
-                // Get alignment errors
-                double xOffset = detection.ftcPose.x;     // Left/right offset
-                double yOffset = detection.ftcPose.y;     // Forward/back offset  
-                double headingError = detection.ftcPose.yaw; // Rotation error
+                // Get alignment errors (in inches and degrees)
+                double xOffset = detection.ftcPose.x;     // Left/right offset (inches)
+                double yOffset = detection.ftcPose.y;     // Forward/back offset (inches)
+                double headingError = detection.ftcPose.yaw; // Rotation error (degrees)
+                double range = detection.ftcPose.range;   // Distance to tag
+                
+                telemetry.addData("🎯 Target Found", "Tag %d", TARGET_TAG_ID);
+                telemetry.addData("📍 Position", "X:%.1f Y:%.1f inches", xOffset, yOffset);
+                telemetry.addData("🧭 Heading", "%.1f degrees", headingError);
+                telemetry.addData("📏 Range", "%.1f inches", range);
                 
                 // Calculate drive powers for alignment
                 double drivePower = 0;
                 double strafePower = 0;
                 double turnPower = 0;
                 
-                // Forward/backward alignment (Y offset)
-                if (Math.abs(yOffset) > ALIGNMENT_TOLERANCE) {
+                // Forward/backward alignment (Y offset) - move closer/farther
+                if (Math.abs(yOffset) > ALIGNMENT_POSITION_TOLERANCE) {
                     drivePower = -Math.signum(yOffset) * ALIGNMENT_DRIVE_POWER;
+                    telemetry.addData("🔧 Drive Adjust", "%.2f (Y offset: %.1f)", drivePower, yOffset);
                 }
                 
-                // Left/right alignment (X offset)
-                if (Math.abs(xOffset) > ALIGNMENT_TOLERANCE) {
+                // Left/right alignment (X offset) - strafe to center
+                if (Math.abs(xOffset) > ALIGNMENT_POSITION_TOLERANCE) {
                     strafePower = -Math.signum(xOffset) * ALIGNMENT_DRIVE_POWER;
+                    telemetry.addData("🔧 Strafe Adjust", "%.2f (X offset: %.1f)", strafePower, xOffset);
                 }
                 
-                // Rotation alignment (heading error)
-                if (Math.abs(headingError) > HEADING_TOLERANCE) {
+                // Rotation alignment (heading error) - turn to face
+                if (Math.abs(headingError) > ALIGNMENT_HEADING_TOLERANCE) {
                     turnPower = Math.signum(headingError) * ALIGNMENT_TURN_POWER;
+                    telemetry.addData("🔧 Turn Adjust", "%.2f (Heading: %.1f)", turnPower, headingError);
                 }
                 
                 // Check if aligned
-                boolean aligned = Math.abs(xOffset) < ALIGNMENT_TOLERANCE && 
-                                Math.abs(yOffset) < ALIGNMENT_TOLERANCE && 
-                                Math.abs(headingError) < HEADING_TOLERANCE;
+                boolean positionAligned = Math.abs(xOffset) < ALIGNMENT_POSITION_TOLERANCE && 
+                                        Math.abs(yOffset) < ALIGNMENT_POSITION_TOLERANCE;
+                boolean headingAligned = Math.abs(headingError) < ALIGNMENT_HEADING_TOLERANCE;
+                boolean fullyAligned = positionAligned && headingAligned;
                 
-                if (aligned) {
+                telemetry.addData("📊 Alignment Status", "Pos:%s Head:%s", 
+                    positionAligned ? "✅" : "❌", headingAligned ? "✅" : "❌");
+                
+                if (fullyAligned) {
                     // Perfect alignment achieved!
                     autoAlignmentActive = false;
                     leftFront.setPower(0);
                     rightFront.setPower(0);
                     leftBack.setPower(0);
                     rightBack.setPower(0);
-                    telemetry.addData("🎯 Auto-Alignment", "✅ ALIGNED! Ready to fire!");
+                    telemetry.addData("🎯 Auto-Alignment", "✅ PERFECTLY ALIGNED! Ready to fire!");
                 } else {
                     // Apply alignment movements
                     double frontLeftPower = drivePower + strafePower + turnPower;
@@ -1024,8 +1060,9 @@ public class TeleOpDECODE extends LinearOpMode {
                     leftBack.setPower(backLeftPower);
                     rightBack.setPower(backRightPower);
                     
-                    telemetry.addData("🎯 Auto-Alignment", "Adjusting... X:%.1f Y:%.1f H:%.1f", 
-                                    xOffset, yOffset, headingError);
+                    telemetry.addData("🎯 Auto-Alignment", "⚙️ ADJUSTING...");
+                    telemetry.addData("🔧 Motor Powers", "FL:%.2f FR:%.2f BL:%.2f BR:%.2f", 
+                        frontLeftPower, frontRightPower, backLeftPower, backRightPower);
                 }
                 
                 break; // Found our tag, no need to check others
@@ -1038,7 +1075,8 @@ public class TeleOpDECODE extends LinearOpMode {
             rightFront.setPower(0);
             leftBack.setPower(0);
             rightBack.setPower(0);
-            telemetry.addData("🎯 Auto-Alignment", "⚠️ Searching for AprilTag %d...", TARGET_TAG_ID);
+            telemetry.addData("🎯 Auto-Alignment", "⚠️ SEARCHING for AprilTag %d...", TARGET_TAG_ID);
+            telemetry.addData("💡 Help", "Make sure tag is visible and well-lit");
         }
     }
 
