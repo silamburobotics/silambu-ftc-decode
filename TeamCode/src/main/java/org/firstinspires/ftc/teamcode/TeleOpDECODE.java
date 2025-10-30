@@ -155,7 +155,7 @@ public class TeleOpDECODE extends LinearOpMode {
     public static final double CAMERA_CENTER_X = 320.0;      // Camera center X (640/2)
     public static final double CAMERA_CENTER_Y = 240.0;      // Camera center Y (480/2)
     public static final double PIXEL_ALIGNMENT_TOLERANCE = 20.0; // pixels from center
-    public static final double PIXEL_ALIGNMENT_POWER = 0.002;   // Power per pixel error
+    public static final double PIXEL_ALIGNMENT_POWER = 0.01;    // Power per pixel error (increased from 0.002)
     
     // Shooter velocity control (ticks per second)
     public static double SHOOTER_TARGET_VELOCITY = 1600; // Range: 1200-1800 ticks/sec
@@ -1031,15 +1031,15 @@ public class TeleOpDECODE extends LinearOpMode {
                     // Clamp to max power
                     strafePower = Math.max(-ALIGNMENT_DRIVE_POWER, 
                                  Math.min(ALIGNMENT_DRIVE_POWER, strafePower));
-                    telemetry.addData("🔧 Strafe", "%.2f (X error: %.0f px)", strafePower, xPixelError);
+                    telemetry.addData("🔧 Strafe", "%.3f (X error: %.0f px)", strafePower, xPixelError);
                 }
                 
-                // Turn to center the tag horizontally (alternative method for fine-tuning)
-                if (Math.abs(xPixelError) > PIXEL_ALIGNMENT_TOLERANCE * 2) {
-                    turnPower = xPixelError * PIXEL_ALIGNMENT_POWER * 0.5;
+                // Turn to center the tag horizontally for large errors
+                if (Math.abs(xPixelError) > PIXEL_ALIGNMENT_TOLERANCE * 1.5) {
+                    turnPower = xPixelError * PIXEL_ALIGNMENT_POWER * 0.8;
                     turnPower = Math.max(-ALIGNMENT_TURN_POWER, 
                                Math.min(ALIGNMENT_TURN_POWER, turnPower));
-                    telemetry.addData("🔧 Turn", "%.2f (X error: %.0f px)", turnPower, xPixelError);
+                    telemetry.addData("🔧 Turn", "%.3f (X error: %.0f px)", turnPower, xPixelError);
                 }
                 
                 // Drive forward/backward to center vertically (Y pixel error)
@@ -1048,7 +1048,25 @@ public class TeleOpDECODE extends LinearOpMode {
                     drivePower = yPixelError * PIXEL_ALIGNMENT_POWER;
                     drivePower = Math.max(-ALIGNMENT_DRIVE_POWER, 
                                 Math.min(ALIGNMENT_DRIVE_POWER, drivePower));
-                    telemetry.addData("🔧 Drive", "%.2f (Y error: %.0f px)", drivePower, yPixelError);
+                    telemetry.addData("🔧 Drive", "%.3f (Y error: %.0f px)", drivePower, yPixelError);
+                }
+                
+                // Add minimum power if error is significant but calculated power is too small
+                double minPower = 0.15;  // Minimum power to overcome static friction
+                
+                if (Math.abs(xPixelError) > PIXEL_ALIGNMENT_TOLERANCE && Math.abs(strafePower) < minPower) {
+                    strafePower = Math.signum(strafePower) * minPower;
+                    telemetry.addData("🔧 Strafe (Min)", "%.3f applied", strafePower);
+                }
+                
+                if (Math.abs(yPixelError) > PIXEL_ALIGNMENT_TOLERANCE && Math.abs(drivePower) < minPower) {
+                    drivePower = Math.signum(drivePower) * minPower;
+                    telemetry.addData("🔧 Drive (Min)", "%.3f applied", drivePower);
+                }
+                
+                if (Math.abs(xPixelError) > PIXEL_ALIGNMENT_TOLERANCE * 1.5 && Math.abs(turnPower) < minPower * 0.7) {
+                    turnPower = Math.signum(turnPower) * minPower * 0.7;
+                    telemetry.addData("🔧 Turn (Min)", "%.3f applied", turnPower);
                 }
                 
                 // Check if centered in camera view
@@ -1074,14 +1092,24 @@ public class TeleOpDECODE extends LinearOpMode {
                     double backLeftPower = drivePower - strafePower + turnPower;
                     double backRightPower = drivePower + strafePower - turnPower;
                     
+                    // Debug: Show if any power is being applied
+                    telemetry.addData("🔍 Raw Powers", "D:%.3f S:%.3f T:%.3f", drivePower, strafePower, turnPower);
+                    
                     leftFront.setPower(frontLeftPower);
                     rightFront.setPower(frontRightPower);
                     leftBack.setPower(backLeftPower);
                     rightBack.setPower(backRightPower);
                     
                     telemetry.addData("🎯 Auto-Alignment", "⚙️ CENTERING TAG...");
-                    telemetry.addData("🔧 Motor Powers", "FL:%.2f FR:%.2f BL:%.2f BR:%.2f", 
+                    telemetry.addData("🔧 Motor Powers", "FL:%.3f FR:%.3f BL:%.3f BR:%.3f", 
                         frontLeftPower, frontRightPower, backLeftPower, backRightPower);
+                    
+                    // Alert if no significant power is being applied
+                    double maxPower = Math.max(Math.max(Math.abs(frontLeftPower), Math.abs(frontRightPower)),
+                                             Math.max(Math.abs(backLeftPower), Math.abs(backRightPower)));
+                    if (maxPower < 0.05) {
+                        telemetry.addData("⚠️ Warning", "Motor powers very low - check calculations");
+                    }
                 }
                 
                 break; // Found our tag, no need to check others
