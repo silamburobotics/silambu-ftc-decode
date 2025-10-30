@@ -151,6 +151,12 @@ public class TeleOpDECODE extends LinearOpMode {
     public static final double ALIGNMENT_POSITION_TOLERANCE = 2.0; // inches for position alignment
     public static final double ALIGNMENT_HEADING_TOLERANCE = 3.0;  // degrees for heading alignment
     
+    // Camera-based alignment settings (pixel coordinates)
+    public static final double CAMERA_CENTER_X = 320.0;      // Camera center X (640/2)
+    public static final double CAMERA_CENTER_Y = 240.0;      // Camera center Y (480/2)
+    public static final double PIXEL_ALIGNMENT_TOLERANCE = 20.0; // pixels from center
+    public static final double PIXEL_ALIGNMENT_POWER = 0.002;   // Power per pixel error
+    
     // Shooter velocity control (ticks per second)
     public static double SHOOTER_TARGET_VELOCITY = 1600; // Range: 1200-1800 ticks/sec
     
@@ -997,15 +1003,21 @@ public class TeleOpDECODE extends LinearOpMode {
             if (detection.metadata != null && detection.id == TARGET_TAG_ID) {
                 targetFound = true;
                 
-                // Get alignment errors (in inches and degrees)
-                double xOffset = detection.ftcPose.x;     // Left/right offset (inches)
-                double yOffset = detection.ftcPose.y;     // Forward/back offset (inches)
-                double headingError = detection.ftcPose.yaw; // Rotation error (degrees)
+                // Get pixel coordinates of the tag center
+                double tagCenterX = detection.center.x;  // Tag center X in pixels
+                double tagCenterY = detection.center.y;  // Tag center Y in pixels
+                
+                // Calculate pixel errors from camera center
+                double xPixelError = tagCenterX - CAMERA_CENTER_X;
+                double yPixelError = tagCenterY - CAMERA_CENTER_Y;
+                
+                // Also get pose data for distance information
                 double range = detection.ftcPose.range;   // Distance to tag
                 
                 telemetry.addData("🎯 Target Found", "Tag %d", TARGET_TAG_ID);
-                telemetry.addData("📍 Position", "X:%.1f Y:%.1f inches", xOffset, yOffset);
-                telemetry.addData("🧭 Heading", "%.1f degrees", headingError);
+                telemetry.addData("� Tag Position", "X:%.0f Y:%.0f pixels", tagCenterX, tagCenterY);
+                telemetry.addData("🎯 Camera Center", "X:%.0f Y:%.0f pixels", CAMERA_CENTER_X, CAMERA_CENTER_Y);
+                telemetry.addData("📐 Pixel Error", "X:%.0f Y:%.0f pixels", xPixelError, yPixelError);
                 telemetry.addData("📏 Range", "%.1f inches", range);
                 
                 // Calculate drive powers for alignment
@@ -1013,41 +1025,48 @@ public class TeleOpDECODE extends LinearOpMode {
                 double strafePower = 0;
                 double turnPower = 0;
                 
-                // Forward/backward alignment (Y offset) - move closer/farther
-                if (Math.abs(yOffset) > ALIGNMENT_POSITION_TOLERANCE) {
-                    drivePower = -Math.signum(yOffset) * ALIGNMENT_DRIVE_POWER;
-                    telemetry.addData("🔧 Drive Adjust", "%.2f (Y offset: %.1f)", drivePower, yOffset);
+                // Strafe to center the tag horizontally (X pixel error)
+                if (Math.abs(xPixelError) > PIXEL_ALIGNMENT_TOLERANCE) {
+                    strafePower = -xPixelError * PIXEL_ALIGNMENT_POWER;
+                    // Clamp to max power
+                    strafePower = Math.max(-ALIGNMENT_DRIVE_POWER, 
+                                 Math.min(ALIGNMENT_DRIVE_POWER, strafePower));
+                    telemetry.addData("🔧 Strafe", "%.2f (X error: %.0f px)", strafePower, xPixelError);
                 }
                 
-                // Left/right alignment (X offset) - strafe to center
-                if (Math.abs(xOffset) > ALIGNMENT_POSITION_TOLERANCE) {
-                    strafePower = -Math.signum(xOffset) * ALIGNMENT_DRIVE_POWER;
-                    telemetry.addData("🔧 Strafe Adjust", "%.2f (X offset: %.1f)", strafePower, xOffset);
+                // Turn to center the tag horizontally (alternative method for fine-tuning)
+                if (Math.abs(xPixelError) > PIXEL_ALIGNMENT_TOLERANCE * 2) {
+                    turnPower = xPixelError * PIXEL_ALIGNMENT_POWER * 0.5;
+                    turnPower = Math.max(-ALIGNMENT_TURN_POWER, 
+                               Math.min(ALIGNMENT_TURN_POWER, turnPower));
+                    telemetry.addData("🔧 Turn", "%.2f (X error: %.0f px)", turnPower, xPixelError);
                 }
                 
-                // Rotation alignment (heading error) - turn to face
-                if (Math.abs(headingError) > ALIGNMENT_HEADING_TOLERANCE) {
-                    turnPower = Math.signum(headingError) * ALIGNMENT_TURN_POWER;
-                    telemetry.addData("🔧 Turn Adjust", "%.2f (Heading: %.1f)", turnPower, headingError);
+                // Drive forward/backward to center vertically (Y pixel error)
+                // Note: Y increases downward in camera coordinates
+                if (Math.abs(yPixelError) > PIXEL_ALIGNMENT_TOLERANCE) {
+                    drivePower = yPixelError * PIXEL_ALIGNMENT_POWER;
+                    drivePower = Math.max(-ALIGNMENT_DRIVE_POWER, 
+                                Math.min(ALIGNMENT_DRIVE_POWER, drivePower));
+                    telemetry.addData("🔧 Drive", "%.2f (Y error: %.0f px)", drivePower, yPixelError);
                 }
                 
-                // Check if aligned
-                boolean positionAligned = Math.abs(xOffset) < ALIGNMENT_POSITION_TOLERANCE && 
-                                        Math.abs(yOffset) < ALIGNMENT_POSITION_TOLERANCE;
-                boolean headingAligned = Math.abs(headingError) < ALIGNMENT_HEADING_TOLERANCE;
-                boolean fullyAligned = positionAligned && headingAligned;
+                // Check if centered in camera view
+                boolean xCentered = Math.abs(xPixelError) < PIXEL_ALIGNMENT_TOLERANCE;
+                boolean yCentered = Math.abs(yPixelError) < PIXEL_ALIGNMENT_TOLERANCE;
+                boolean fullyCentered = xCentered && yCentered;
                 
-                telemetry.addData("📊 Alignment Status", "Pos:%s Head:%s", 
-                    positionAligned ? "✅" : "❌", headingAligned ? "✅" : "❌");
+                telemetry.addData("📊 Centering Status", "X:%s Y:%s", 
+                    xCentered ? "✅" : "❌", yCentered ? "✅" : "❌");
                 
-                if (fullyAligned) {
-                    // Perfect alignment achieved!
+                if (fullyCentered) {
+                    // Perfect centering achieved!
                     autoAlignmentActive = false;
                     leftFront.setPower(0);
                     rightFront.setPower(0);
                     leftBack.setPower(0);
                     rightBack.setPower(0);
-                    telemetry.addData("🎯 Auto-Alignment", "✅ PERFECTLY ALIGNED! Ready to fire!");
+                    telemetry.addData("🎯 Auto-Alignment", "✅ PERFECTLY CENTERED! Tag in camera center!");
                 } else {
                     // Apply alignment movements
                     double frontLeftPower = drivePower + strafePower + turnPower;
@@ -1060,7 +1079,7 @@ public class TeleOpDECODE extends LinearOpMode {
                     leftBack.setPower(backLeftPower);
                     rightBack.setPower(backRightPower);
                     
-                    telemetry.addData("🎯 Auto-Alignment", "⚙️ ADJUSTING...");
+                    telemetry.addData("🎯 Auto-Alignment", "⚙️ CENTERING TAG...");
                     telemetry.addData("🔧 Motor Powers", "FL:%.2f FR:%.2f BL:%.2f BR:%.2f", 
                         frontLeftPower, frontRightPower, backLeftPower, backRightPower);
                 }
