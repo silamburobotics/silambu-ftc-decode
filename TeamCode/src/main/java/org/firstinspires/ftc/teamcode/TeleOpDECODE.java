@@ -62,6 +62,11 @@ public class TeleOpDECODE extends LinearOpMode {
     private boolean previousB = false;
     private boolean isAlignedToTag = false; // Track if robot is aligned to AprilTag
     
+    // Gamepad2 button states for operator controls
+    private boolean previousX2 = false;
+    private boolean previousY2 = false;
+    private boolean previousB2 = false;
+    
     // Shooter state tracking
     private boolean shooterIntentionallyRunning = false; // Track if shooter was intentionally started
     
@@ -153,12 +158,15 @@ public class TeleOpDECODE extends LinearOpMode {
         
         // Wait for the game to start (driver presses PLAY)
         telemetry.addData("Status", "Initialized");
-        telemetry.addData("Instructions", "X = Indexor (120 degrees)");
-        telemetry.addData("Instructions", "A = Intake + Converyor");
-        telemetry.addData("Instructions", "Y = Shooter");
-        telemetry.addData("Instructions", "B = Trigger Servo (60-120°) Manual/Auto");
-        telemetry.addData("Instructions", "Left Stick = Drive/Strafe, Right Stick X = Turn");
-        telemetry.addData("Instructions", "Back = Toggle Auto-Ball System");
+        telemetry.addData("=== GAMEPAD 1 (DRIVER) ===", "");
+        telemetry.addData("A Button", "Intake + Converyor");
+        telemetry.addData("Left Stick", "Drive/Strafe");
+        telemetry.addData("Right Stick X", "Turn");
+        telemetry.addData("Back Button", "Toggle Auto-Ball System");
+        telemetry.addData("=== GAMEPAD 2 (OPERATOR) ===", "");
+        telemetry.addData("X Button", "Indexor (120 degrees)");
+        telemetry.addData("Y Button", "Shooter + Shooter Servo");
+        telemetry.addData("B Button", "Trigger Servo (60-120°)");
         telemetry.addData("AprilTag", "Looking for Blue ID %d", TARGET_TAG_ID);
         telemetry.addData("🤖 Auto-Ball System", "Auto-advances balls when intake running");
         telemetry.addData("🤖 Auto-Trigger", "Keeps trigger HOME when intake running");
@@ -357,11 +365,13 @@ public class TeleOpDECODE extends LinearOpMode {
     }
     
     private void handleControllerInputs() {
-        // Get current button states
-        boolean currentX = gamepad1.x;
+        // Get current button states for gamepad1 (driver)
         boolean currentA = gamepad1.a;
-        boolean currentY = gamepad1.y;
-        boolean currentB = gamepad1.b;
+        
+        // Get current button states for gamepad2 (operator)
+        boolean currentX2 = gamepad2.x;
+        boolean currentY2 = gamepad2.y;
+        boolean currentB2 = gamepad2.b;
         
         // Manual light testing with dpad (for debugging)
         if (gamepad1.dpad_up) {
@@ -386,39 +396,38 @@ public class TeleOpDECODE extends LinearOpMode {
             telemetry.addData("🤖 Auto-Ball System", autoBallSystemEnabled ? "ENABLED" : "DISABLED");
         }
         
-        // Handle X button - Run Indexor for 3500 ticks
-        if (currentX && !previousX) {
+        // Handle X button on gamepad2 - Run Indexor for 120 degrees
+        if (currentX2 && !previousX2) {
             runIndexorToPosition(INDEXOR_TICKS);
-            //toggleIntakeAndConveryor();
         }
         
-        // Handle A button - Toggle Intake and Converyor
+        // Handle A button on gamepad1 - Toggle Intake and Converyor
         if (currentA && !previousA) {
             toggleIntakeAndConveryor();
         }
         
-        // Handle Y button - Toggle Shooter
-        if (currentY && !previousY) {
+        // Handle Y button on gamepad2 - Toggle Shooter
+        if (currentY2 && !previousY2) {
             toggleShooter();
         }
         
-        // Handle B button - Toggle Trigger Servo
-        if (currentB && !previousB) {
+        // Handle B button on gamepad2 - Toggle Trigger Servo
+        if (currentB2 && !previousB2) {
             toggleTriggerServo();
         }
         
         // Update previous button states
-        previousX = currentX;
         previousA = currentA;
-        previousY = currentY;
-        previousB = currentB;
+        previousX2 = currentX2;
+        previousY2 = currentY2;
+        previousB2 = currentB2;
     }
     
     private void handleMecanumDrive() {
         // Get joystick inputs
-        double drive = -gamepad1.left_stick_y;  // Forward/backward (negative because y-axis is inverted)
-        double strafe = gamepad1.left_stick_x;  // Left/right strafe
-        double turn = gamepad1.right_stick_x;   // Rotation
+        double drive = gamepad1.left_stick_y;   // Forward/backward (swapped: positive for forward)
+        double strafe = -gamepad1.left_stick_x; // Left/right strafe (swapped: negative for right strafe)
+        double turn = -gamepad1.right_stick_x;  // Rotation (swapped: negative for right turn)
         
         // Apply speed multipliers
         drive *= DRIVE_SPEED_MULTIPLIER;
@@ -954,13 +963,17 @@ public class TeleOpDECODE extends LinearOpMode {
         
         // Display button instructions
         telemetry.addData("", "");
-        telemetry.addData("Controls", "");
-        telemetry.addData("X Button", "Move Indexor 120 degrees");
+        telemetry.addData("=== GAMEPAD 1 (DRIVER) ===", "");
         telemetry.addData("A Button", "Toggle Intake + Converyor");
-        telemetry.addData("Y Button", "Toggle Shooter + Shooter Servo");
-        telemetry.addData("B Button", "Toggle Trigger Servo (60-120°)");
         telemetry.addData("Left Stick", "Drive Forward/Back & Strafe Left/Right");
         telemetry.addData("Right Stick X", "Turn Left/Right");
+        telemetry.addData("Back Button", "Toggle Auto-Ball Management System");
+        telemetry.addData("DPad", "Manual Light Tests");
+        telemetry.addData("", "");
+        telemetry.addData("=== GAMEPAD 2 (OPERATOR) ===", "");
+        telemetry.addData("X Button", "Move Indexor 120 degrees");
+        telemetry.addData("Y Button", "Toggle Shooter + Shooter Servo");
+        telemetry.addData("B Button", "Toggle Trigger Servo (60-120°)");
         telemetry.addData("DPad Up", "Manual Green Light Test");
         telemetry.addData("DPad Down", "Manual Light Off Test");
         telemetry.addData("DPad Left", "Manual White Light Test");
