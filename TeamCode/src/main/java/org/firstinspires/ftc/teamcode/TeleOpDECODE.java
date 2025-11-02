@@ -515,7 +515,7 @@ public class TeleOpDECODE extends LinearOpMode {
                 // Adjust shooter velocity based on distance
                 if (distance < 100.0) {
                     // Close range - use lower velocity
-                    SHOOTER_TARGET_VELOCITY = 1200;
+                    SHOOTER_TARGET_VELOCITY = 1300;
                 } else {
                     // Long range - use higher velocity  
                     SHOOTER_TARGET_VELOCITY = 1600;
@@ -1656,6 +1656,12 @@ public class TeleOpDECODE extends LinearOpMode {
                 rightBack.setPower(0);
                 telemetry.addData("⚽ Ball Alignment", "STOPPED by driver");
             } else {
+                // Set trigger to HOME position at the start
+                triggerServo.setPosition(TRIGGER_HOME);
+                manualTriggerControl = true;
+                triggerManualTimer.reset();
+                telemetry.addData("🔧 Trigger", "Set to HOME position (%.2f)", TRIGGER_HOME);
+                
                 // Check if ball detector is available
                 if (ballDetector == null) {
                     telemetry.addData("❌ Ball Alignment", "Ball detector not initialized");

@@ -129,13 +129,13 @@ public class AutoOpDECODE extends LinearOpMode {
     // Test waypoints sequence - CENTER-BASED COORDINATE UNDERSTANDING TEST
     private static final double[][] TEST_WAYPOINTS = {
         {72.0, 72.0},   // Point 1 - CENTER (start here)
-        {36.0, 108.0},  // Point 2 - TOP LEFT (from center: -36X, +36Y)
+        {48.0, 96.0},   // Point 2 - TOP LEFT (from center: -24X, +24Y) - 2 feet
         {72.0, 72.0},   // Point 3 - CENTER (return)
-        {108.0, 108.0}, // Point 4 - TOP RIGHT (from center: +36X, +36Y)
+        {96.0, 96.0},   // Point 4 - TOP RIGHT (from center: +24X, +24Y) - 2 feet
         {72.0, 72.0},   // Point 5 - CENTER (return)
-        {36.0, 36.0},   // Point 6 - BOTTOM LEFT (from center: -36X, -36Y)
+        {48.0, 48.0},   // Point 6 - BOTTOM LEFT (from center: -24X, -24Y) - 2 feet
         {72.0, 72.0},   // Point 7 - CENTER (return)
-        {108.0, 36.0},  // Point 8 - BOTTOM RIGHT (from center: +36X, -36Y)
+        {96.0, 48.0},   // Point 8 - BOTTOM RIGHT (from center: +24X, -24Y) - 2 feet
         {72.0, 72.0}    // Point 9 - CENTER (final return)
     };
     
