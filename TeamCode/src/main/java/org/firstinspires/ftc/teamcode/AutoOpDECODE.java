@@ -99,6 +99,10 @@ public class AutoOpDECODE extends LinearOpMode {
     public static final double START_BLUE_RIGHT_X = 132.0;  // Blue alliance, right position
     public static final double START_BLUE_RIGHT_Y = 132.0;
     
+    // Current blue robot starting position (change these values for your desired position)
+    public static final double BLUE_ROBOT_START_X = START_BLUE_LEFT_X;   // Set to your X coordinate
+    public static final double BLUE_ROBOT_START_Y = START_BLUE_LEFT_Y;   // Set to your Y coordinate
+    
     // Key field positions
     public static final double CENTER_FIELD_X = 72.0;       // Center of field
     public static final double CENTER_FIELD_Y = 72.0;
@@ -116,12 +120,38 @@ public class AutoOpDECODE extends LinearOpMode {
     public static final double SHOOTER_SPINUP_TIME = 2.0;   // seconds - time for shooter to reach speed
     public static final double FIRING_SEQUENCE_TIME = 1.5;  // seconds - time for firing sequence
     
+    // COORDINATE TEST CONSTANTS - TEMPORARY FOR VERIFICATION
+    public static final boolean ENABLE_COORDINATE_TEST = true;  // Set to false to disable test mode
+    public static final double TEST_DRIVE_SPEED = 0.3;         // Slower speed for testing
+    public static final double TEST_PAUSE_TIME = 2.0;          // Pause duration at each waypoint
+    public static final double POSITION_TOLERANCE = 6.0;       // Tolerance for reaching waypoints (inches)
+    
+    // Test waypoints sequence
+    private static final double[][] TEST_WAYPOINTS = {
+        {30.0, 24.0},   // Point 1
+        {96.0, 24.0},   // Point 2
+        {30.0, 60.0},   // Point 3
+        {72.0, 72.0},   // Point 4 - Center field
+        {114.0, 60.0},  // Point 5
+        {30.0, 84.0},   // Point 6
+        {114.0, 84.0},  // Point 7
+        {72.0, 130.0}   // Point 8 - Final position near blue zone center
+    };
+    
+    // Ball collection constants for coordinate test
+    public static final int TEST_TARGET_BALLS = 3;           // Number of balls to collect
+    public static final double BALL_COLLECTION_TIMEOUT = 15.0; // Max time to collect balls
+    public static final double SHOOTER_SPEED_THRESHOLD = 0.8;  // 80% of target speed
+    
     // Shooter velocity control
     public static final double SHOOTER_TARGET_VELOCITY = 1600; // ticks/sec
     
     // Autonomous state tracking
     private enum AutoState {
         INIT,
+        COORDINATE_TEST_COLLECT,  // NEW: Collect balls during coordinate test
+        COORDINATE_TEST,          // NEW: Test coordinate system
+        COORDINATE_TEST_SHOOT,    // NEW: Shooting phase after coordinate test
         SCAN_FOR_BALL,
         APPROACH_BALL,
         PICKUP_BALL,
@@ -151,9 +181,18 @@ public class AutoOpDECODE extends LinearOpMode {
     private double lastFireTime = 0;             // Track timing between shots
     
     // Field positioning tracking
-    private double robotX = START_BLUE_LEFT_X;  // Current robot X position
-    private double robotY = START_BLUE_LEFT_Y;  // Current robot Y position
+    private double robotX = BLUE_ROBOT_START_X;  // Current robot X position
+    private double robotY = BLUE_ROBOT_START_Y;  // Current robot Y position
     private double robotHeading = 0.0;          // Robot heading in degrees (0 = facing forward)
+    
+    // COORDINATE TEST TRACKING VARIABLES
+    private int currentWaypointIndex = 0;        // Current test waypoint being navigated to
+    private boolean waypointReached = false;     // Flag if current waypoint is reached
+    private ElapsedTime pauseTimer = new ElapsedTime(); // Timer for pauses at waypoints
+    private boolean isPausing = false;           // Flag if currently pausing at waypoint
+    private int testBallsCollected = 0;          // Balls collected during coordinate test
+    private ElapsedTime collectionTimer = new ElapsedTime(); // Timer for ball collection phase
+    private boolean shooterReady = false;        // Flag if shooter is at target speed
     
     // Encoder tracking for position estimation
     private int lastLeftEncoder = 0;
@@ -304,7 +343,31 @@ public class AutoOpDECODE extends LinearOpMode {
                 stageTimer.reset();
                 ballsCollected = 0;  // Reset ball counter
                 shotsFired = 0;      // Reset shot counter
-                currentState = AutoState.SCAN_FOR_BALL;
+                
+                // Check if coordinate test mode is enabled
+                if (ENABLE_COORDINATE_TEST) {
+                    currentState = AutoState.COORDINATE_TEST_COLLECT;
+                    currentWaypointIndex = 0;
+                    waypointReached = false;
+                    isPausing = false;
+                    testBallsCollected = 0;
+                    collectionTimer.reset();
+                    telemetry.addData("🧪 Starting", "Ball Collection + Coordinate Test");
+                } else {
+                    currentState = AutoState.SCAN_FOR_BALL;
+                }
+                break;
+                
+            case COORDINATE_TEST_COLLECT:
+                executeCoordinateTestCollect();
+                break;
+                
+            case COORDINATE_TEST:
+                executeCoordinateTest();
+                break;
+                
+            case COORDINATE_TEST_SHOOT:
+                executeCoordinateTestShoot();
                 break;
                 
             case SCAN_FOR_BALL:
@@ -933,11 +996,20 @@ public class AutoOpDECODE extends LinearOpMode {
     }
     
     private void initializeFieldPosition() {
-        // Set starting position based on alliance and starting location
-        // This should be configured based on your actual starting position
-        robotX = START_BLUE_LEFT_X;  // Change this based on your starting position
-        robotY = START_BLUE_LEFT_Y;  // Change this based on your starting position
-        robotHeading = 0.0;          // Facing forward (toward opposite alliance)
+        // COORDINATE TEST MODE - Override starting position
+        if (ENABLE_COORDINATE_TEST) {
+            robotX = 48.0;  // Test starting position
+            robotY = 0.0;   // Test starting position
+            robotHeading = 0.0;
+            telemetry.addData("🧪 COORDINATE TEST MODE", "ENABLED");
+            telemetry.addData("Test Starting Position", "X: %.1f, Y: %.1f", robotX, robotY);
+            telemetry.addData("Test Waypoints", "%d total waypoints", TEST_WAYPOINTS.length);
+        } else {
+            // Normal starting position
+            robotX = BLUE_ROBOT_START_X;  // Use the configured blue robot start position
+            robotY = BLUE_ROBOT_START_Y;  // Use the configured blue robot start position
+            robotHeading = 0.0;          // Facing forward (toward opposite alliance)
+        }
         
         // Reset encoder tracking
         lastLeftEncoder = leftFront.getCurrentPosition();
@@ -946,5 +1018,208 @@ public class AutoOpDECODE extends LinearOpMode {
         
         telemetry.addData("Starting Position", "X: %.1f, Y: %.1f", robotX, robotY);
         telemetry.addData("Starting Heading", "%.1f degrees", robotHeading);
+    }
+    
+    // COORDINATE TEST FUNCTION - TEMPORARY FOR VERIFICATION
+    private void executeCoordinateTest() {
+        // Check if we've completed all waypoints
+        if (currentWaypointIndex >= TEST_WAYPOINTS.length) {
+            stopDriveMotors();
+            telemetry.addData("🧪 COORDINATE TEST", "Navigation Complete!");
+            telemetry.addData("Final Position", "X: %.1f, Y: %.1f", robotX, robotY);
+            telemetry.addData("Next Phase", "Moving to shooting phase");
+            
+            // Transition to shooting phase
+            currentState = AutoState.COORDINATE_TEST_SHOOT;
+            stageTimer.reset();
+            return;
+        }
+        
+        double targetX = TEST_WAYPOINTS[currentWaypointIndex][0];
+        double targetY = TEST_WAYPOINTS[currentWaypointIndex][1];
+        
+        // If currently pausing at a waypoint
+        if (isPausing) {
+            stopDriveMotors();
+            
+            if (pauseTimer.seconds() >= TEST_PAUSE_TIME) {
+                // Pause complete, move to next waypoint
+                isPausing = false;
+                currentWaypointIndex++;
+                waypointReached = false;
+                
+                telemetry.addData("🧪 Waypoint %d", "COMPLETE - Moving to next", currentWaypointIndex);
+            } else {
+                // Still pausing
+                double remainingTime = TEST_PAUSE_TIME - pauseTimer.seconds();
+                telemetry.addData("🧪 Pausing", "%.1f seconds remaining", remainingTime);
+                telemetry.addData("Current Waypoint", "%d: (%.1f, %.1f)", 
+                                currentWaypointIndex + 1, targetX, targetY);
+            }
+            return;
+        }
+        
+        // Check if we've reached the current waypoint
+        if (!waypointReached && isAtPosition(targetX, targetY, POSITION_TOLERANCE)) {
+            // Reached waypoint - start pause
+            waypointReached = true;
+            isPausing = true;
+            pauseTimer.reset();
+            stopDriveMotors();
+            
+            telemetry.addData("🧪 REACHED", "Waypoint %d: (%.1f, %.1f)", 
+                            currentWaypointIndex + 1, targetX, targetY);
+            telemetry.addData("Starting Pause", "%.1f seconds", TEST_PAUSE_TIME);
+        } else if (!waypointReached) {
+            // Navigate to current waypoint
+            driveToPosition(targetX, targetY, TEST_DRIVE_SPEED);
+            
+            double distance = Math.sqrt(Math.pow(targetX - robotX, 2) + Math.pow(targetY - robotY, 2));
+            telemetry.addData("🧪 NAVIGATING", "To waypoint %d", currentWaypointIndex + 1);
+            telemetry.addData("Target", "(%.1f, %.1f)", targetX, targetY);
+            telemetry.addData("Current", "(%.1f, %.1f)", robotX, robotY);
+            telemetry.addData("Distance", "%.1f inches", distance);
+            telemetry.addData("Progress", "%d / %d waypoints", currentWaypointIndex + 1, TEST_WAYPOINTS.length);
+        }
+        
+        // Display test progress
+        telemetry.addData("🧪 TEST MODE", "Coordinate System Verification");
+        telemetry.addData("Test Speed", "%.1f power", TEST_DRIVE_SPEED);
+        telemetry.addData("Position Tolerance", "%.1f inches", POSITION_TOLERANCE);
+        
+        // Show upcoming waypoints
+        if (currentWaypointIndex + 1 < TEST_WAYPOINTS.length) {
+            double nextX = TEST_WAYPOINTS[currentWaypointIndex + 1][0];
+            double nextY = TEST_WAYPOINTS[currentWaypointIndex + 1][1];
+            telemetry.addData("Next Waypoint", "%d: (%.1f, %.1f)", 
+                            currentWaypointIndex + 2, nextX, nextY);
+        }
+    }
+    
+    // BALL COLLECTION PHASE FOR COORDINATE TEST
+    private void executeCoordinateTestCollect() {
+        if (collectionTimer.seconds() == 0) {
+            // Start collection systems
+            intake.setPower(INTAKE_POWER);
+            conveyor.setPower(CONVEYOR_POWER);
+            
+            // Start indexor rotation to collect balls
+            int currentPosition = indexor.getCurrentPosition();
+            indexor.setTargetPosition(currentPosition + INDEXOR_TICKS);
+            indexor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+            indexor.setPower(0.3);
+            
+            collectionTimer.reset();
+            telemetry.addData("🧪 COLLECTION", "Starting ball collection");
+        }
+        
+        // Simulate ball detection - in real implementation, use sensors
+        // For now, we'll collect for a set time or until target reached
+        if (collectionTimer.seconds() > 2.0 && testBallsCollected < TEST_TARGET_BALLS) {
+            testBallsCollected++;
+            
+            if (testBallsCollected < TEST_TARGET_BALLS) {
+                // Continue indexor for next ball
+                int currentPosition = indexor.getCurrentPosition();
+                indexor.setTargetPosition(currentPosition + INDEXOR_TICKS);
+                indexor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+                indexor.setPower(0.3);
+                collectionTimer.reset();
+            }
+        }
+        
+        // Check if collection is complete
+        if (testBallsCollected >= TEST_TARGET_BALLS || collectionTimer.seconds() > BALL_COLLECTION_TIMEOUT) {
+            // Stop collection systems
+            intake.setPower(0);
+            conveyor.setPower(0);
+            indexor.setPower(0);
+            
+            telemetry.addData("🧪 COLLECTION", "Complete! Collected %d balls", testBallsCollected);
+            telemetry.addData("Starting", "Coordinate navigation test");
+            
+            // Move to coordinate navigation
+            currentState = AutoState.COORDINATE_TEST;
+            stageTimer.reset();
+        } else {
+            // Display collection progress
+            telemetry.addData("🧪 COLLECTING", "Balls: %d / %d", testBallsCollected, TEST_TARGET_BALLS);
+            telemetry.addData("Collection Time", "%.1f seconds", collectionTimer.seconds());
+            telemetry.addData("Systems Running", "Intake, Conveyor, Indexor");
+        }
+    }
+    
+    // SHOOTING PHASE FOR COORDINATE TEST
+    private void executeCoordinateTestShoot() {
+        if (stageTimer.seconds() == 0) {
+            telemetry.addData("🧪 SHOOTING PHASE", "Moving to center and preparing shooter");
+            stageTimer.reset();
+        }
+        
+        // Move to center field for shooting
+        if (!isAtPosition(CENTER_FIELD_X, CENTER_FIELD_Y, POSITION_TOLERANCE)) {
+            driveToPosition(CENTER_FIELD_X, CENTER_FIELD_Y, TEST_DRIVE_SPEED);
+            telemetry.addData("🧪 POSITIONING", "Moving to center field");
+            telemetry.addData("Target", "(%.1f, %.1f)", CENTER_FIELD_X, CENTER_FIELD_Y);
+            telemetry.addData("Current", "(%.1f, %.1f)", robotX, robotY);
+            return;
+        }
+        
+        // At center field - prepare shooter
+        stopDriveMotors();
+        
+        if (!shooterReady) {
+            // Start shooter systems
+            shooter.setVelocity(SHOOTER_TARGET_VELOCITY);
+            shooterServo.setPower(SHOOTER_SERVO_POWER);
+            speedLight.setPosition(LIGHT_GREEN_POSITION);
+            
+            // Check if shooter is ready (80% of target speed)
+            double currentVelocity = Math.abs(shooter.getVelocity());
+            double speedPercentage = currentVelocity / SHOOTER_TARGET_VELOCITY;
+            
+            if (speedPercentage >= SHOOTER_SPEED_THRESHOLD) {
+                shooterReady = true;
+                telemetry.addData("🧪 SHOOTER", "READY! Starting fire sequence");
+            } else {
+                telemetry.addData("🧪 SHOOTER", "Spinning up: %.1f%%", speedPercentage * 100);
+                telemetry.addData("Current Speed", "%.0f / %.0f ticks/sec", currentVelocity, SHOOTER_TARGET_VELOCITY);
+            }
+        } else {
+            // Shooter ready - execute firing sequence
+            if (stageTimer.seconds() < 1.0) {
+                // Start indexor and conveyor for firing
+                conveyor.setPower(CONVEYOR_POWER);
+                int currentPosition = indexor.getCurrentPosition();
+                indexor.setTargetPosition(currentPosition + INDEXOR_TICKS);
+                indexor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+                indexor.setPower(0.3);
+                
+                telemetry.addData("🧪 FIRING", "Feeding ball to shooter");
+                
+            } else if (stageTimer.seconds() < 2.0) {
+                // Fire trigger
+                triggerServo.setPosition(TRIGGER_HOME);
+                telemetry.addData("🧪 FIRING", "SHOT FIRED!");
+                
+            } else if (stageTimer.seconds() < 3.0) {
+                // Reset trigger
+                triggerServo.setPosition(TRIGGER_FIRE);
+                telemetry.addData("🧪 FIRING", "Resetting trigger");
+                
+            } else {
+                // Complete test
+                stopAllMotors();
+                speedLight.setPosition(LIGHT_OFF_POSITION);
+                
+                telemetry.addData("🧪 COORDINATE TEST", "FULLY COMPLETED!");
+                telemetry.addData("Ball Collection", "%d balls collected", testBallsCollected);
+                telemetry.addData("Navigation", "All %d waypoints completed", TEST_WAYPOINTS.length);
+                telemetry.addData("Shooting", "Fire sequence executed");
+                telemetry.addData("Final Position", "Center field (%.1f, %.1f)", CENTER_FIELD_X, CENTER_FIELD_Y);
+                
+                currentState = AutoState.COMPLETE;
+            }
+        }
     }
 }
