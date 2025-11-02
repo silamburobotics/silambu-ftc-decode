@@ -171,7 +171,7 @@ public class TeleOpDECODE extends LinearOpMode {
     public static final double AUTO_INDEXOR_POWER = 0.1;      // Power for automatic indexor movement
     
     // Manual indexor joystick control settings
-    public static final double MANUAL_INDEXOR_POWER = 0.3;    // 30% power for manual joystick control
+    public static final double MANUAL_INDEXOR_POWER = 0.6;    // 60% power for manual joystick control
     public static final double JOYSTICK_DEADZONE = 0.1;       // Deadzone to prevent drift
     
     // Trigger servo automatic management settings
@@ -597,9 +597,9 @@ public class TeleOpDECODE extends LinearOpMode {
             telemetry.addData("🤖 Auto-Ball System", autoBallSystemEnabled ? "ENABLED" : "DISABLED");
         }
         
-        // Handle X button on gamepad2 - Run Indexor for 120 degrees
+        // Handle X button on gamepad2 - Smart Indexor Control (Release if stuck, Run if free)
         if (currentX2 && !previousX2) {
-            runIndexorToPosition(INDEXOR_TICKS);
+            handleIndexorStuckRelease();
         }
         
         // Handle A button on gamepad1 - Toggle Intake and Converyor
@@ -672,6 +672,22 @@ public class TeleOpDECODE extends LinearOpMode {
         rightFront.setPower(frontRightPower);
         leftBack.setPower(backLeftPower);
         rightBack.setPower(backRightPower);
+    }
+    
+    private void handleIndexorStuckRelease() {
+        // Check if indexor is currently running or stuck
+        if (indexorIsRunning || indexorIsRecovering) {
+            // Indexor is active or stuck - release it and make it float
+            indexor.setPower(0);
+            indexor.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
+            indexorIsRunning = false;
+            indexorIsRecovering = false;
+            telemetry.addData("🔧 Indexor Released", "Motor stopped and set to float mode");
+            telemetry.addData("💡 Status", "Indexor is now free to move manually");
+        } else {
+            // Indexor is free - run normal 120 degree movement
+            runIndexorToPosition(INDEXOR_TICKS);
+        }
     }
     
     private void runIndexorToPosition(int ticks) {
@@ -939,6 +955,8 @@ public class TeleOpDECODE extends LinearOpMode {
                 }
             }
             
+            // Debug telemetry for joystick troubleshooting
+            telemetry.addData("🔍 Joystick Debug", "Raw Y: %.3f, Processed: %.3f", gamepad2.right_stick_y, joystickY);
             telemetry.addData("Indexor Manual", "Power: %.2f (%.0f%%)", indexorPower, indexorPower * 100);
             telemetry.addData("Conveyor Manual", "RUNNING at %.2f power", CONVEYOR_POWER);
             telemetry.addData("Control Mode", "MANUAL - Right Joystick");
