@@ -81,6 +81,7 @@ public class TeleOpDECODE extends LinearOpMode {
     private boolean previousY = false;
     private boolean previousB = false;
     private boolean isAlignedToTag = false; // Track if robot is aligned to AprilTag
+    private boolean aprilTagDistanceAvailable = false; // Track if AprilTag distance is available
     
     // Gamepad2 button states for operator controls
     private boolean previousX2 = false;
@@ -153,6 +154,7 @@ public class TeleOpDECODE extends LinearOpMode {
     public static final double LIGHT_OFF_POSITION = 0.0;     // Servo position for light off
     public static final double LIGHT_GREEN_POSITION = 0.5;   // Servo position for green light
     public static final double LIGHT_WHITE_POSITION = 1.0;   // Servo position for white light (if needed)
+    public static final double LIGHT_BLUE_POSITION = 0.25;   // Servo position for blue light (AprilTag not found)
     public static final double SHOOTER_SPEED_THRESHOLD = 0.95; // 95% of target speed
     
     // Mecanum drive settings
@@ -473,13 +475,17 @@ public class TeleOpDECODE extends LinearOpMode {
         
         // Reset alignment status
         isAlignedToTag = false;
+        aprilTagDistanceAvailable = false; // Reset distance availability
         
         // Debug: Always show detection count
         telemetry.addData("👁️ Vision Status", "%d tags detected", currentDetections.size());
         
         // Look for the target tag
         for (AprilTagDetection detection : currentDetections) {
-            if (detection != null && detection.id == TARGET_TAG_ID) {
+            if (detection != null && detection.ftcPose != null && detection.id == TARGET_TAG_ID) {
+                // AprilTag found with valid pose data - distance is available!
+                aprilTagDistanceAvailable = true;
+                
                 // Get distance and pose information
                 double xOffset = detection.ftcPose.x;
                 double yOffset = detection.ftcPose.y;
@@ -552,9 +558,11 @@ public class TeleOpDECODE extends LinearOpMode {
         
         // List any tags we can see for debugging
         for (AprilTagDetection detection : currentDetections) {
-            if (detection != null) {
+            if (detection != null && detection.ftcPose != null) {
                 telemetry.addData("👀 Visible Tag", "ID %d at %.1f inches (Meta: %s)", 
                     detection.id, detection.ftcPose.range, detection.metadata != null ? "Yes" : "No");
+            } else if (detection != null) {
+                telemetry.addData("👀 Visible Tag", "ID %d (No pose data)", detection.id);
             }
         }
         
@@ -585,8 +593,8 @@ public class TeleOpDECODE extends LinearOpMode {
             speedLight.setPosition(LIGHT_WHITE_POSITION);
             telemetry.addData("Manual Light Test", "WHITE position (%.2f)", LIGHT_WHITE_POSITION);
         } else if (gamepad1.dpad_right) {
-            speedLight.setPosition(0.75);
-            telemetry.addData("Manual Light Test", "Test position (0.75)");
+            speedLight.setPosition(LIGHT_BLUE_POSITION);
+            telemetry.addData("Manual Light Test", "BLUE position (%.2f) - AprilTag Not Found", LIGHT_BLUE_POSITION);
         }
         
         // Back button to toggle auto-ball management system
@@ -1019,6 +1027,13 @@ public class TeleOpDECODE extends LinearOpMode {
         double targetVelocity = SHOOTER_TARGET_VELOCITY;
         double speedPercentage = targetVelocity > 0 ? currentVelocity / targetVelocity : 0;
         
+        // Priority 1: Show blue light if AprilTag distance cannot be found
+        if (!aprilTagDistanceAvailable) {
+            speedLight.setPosition(LIGHT_BLUE_POSITION);
+            return;
+        }
+        
+        // Priority 2: Normal shooter speed indication when AprilTag is available
         // Check if shooter is running and at 95% speed
         if (currentVelocity > 50 && speedPercentage > SHOOTER_SPEED_THRESHOLD) {
             // Turn light green when greater than 95% speed
@@ -1317,7 +1332,7 @@ public class TeleOpDECODE extends LinearOpMode {
         // Look for the target tag
         for (AprilTagDetection detection : currentDetections) {
             // Accept detections with or without metadata (since we're not using tag library)
-            if (detection != null && detection.id == TARGET_TAG_ID) {
+            if (detection != null && detection.ftcPose != null && detection.id == TARGET_TAG_ID) {
                 targetFound = true;
                 
                 // Get bearing angle (detection angle) - this is what we want to minimize
@@ -1464,14 +1479,19 @@ public class TeleOpDECODE extends LinearOpMode {
         
         // Enhanced speed light status with servo position
         double lightPosition = speedLight.getPosition();
-        if (currentVelocity > 50 && speedPercentage > (SHOOTER_SPEED_THRESHOLD * 100)) {
-            telemetry.addData("Speed Light", "GREEN - Ready! (pos: %.2f)", lightPosition);
+        if (!aprilTagDistanceAvailable) {
+            telemetry.addData("Speed Light", "🔵 BLUE - AprilTag Not Found (pos: %.2f)", lightPosition);
+        } else if (currentVelocity > 50 && speedPercentage > (SHOOTER_SPEED_THRESHOLD * 100)) {
+            telemetry.addData("Speed Light", "🟢 GREEN - Ready! (pos: %.2f)", lightPosition);
         } else if (currentVelocity > 50) {
-            telemetry.addData("Speed Light", "WHITE - Spinning up... (%.1f%%, pos: %.2f)", 
+            telemetry.addData("Speed Light", "⚪ WHITE - Spinning up... (%.1f%%, pos: %.2f)", 
                              speedPercentage, lightPosition);
         } else {
-            telemetry.addData("Speed Light", "OFF - Stopped (pos: %.2f)", lightPosition);
+            telemetry.addData("Speed Light", "⚫ OFF - Stopped (pos: %.2f)", lightPosition);
         }
+        
+        // Display AprilTag detection status
+        telemetry.addData("🎯 AprilTag Detection", aprilTagDistanceAvailable ? "✅ AVAILABLE" : "❌ NOT FOUND");
         
         // Display drive motor status
         telemetry.addData("", "");
@@ -1497,10 +1517,10 @@ public class TeleOpDECODE extends LinearOpMode {
         telemetry.addData("B Button", "Toggle Trigger Servo (60-120°)");
         telemetry.addData("Right Stick Y", "Manual Indexor Control (40% power)");
         telemetry.addData("📌 Manual Mode", "Joystick overrides buttons, Auto-trigger on reverse");
-        telemetry.addData("DPad Up", "Manual Green Light Test");
+        telemetry.addData("DPad Up", "Manual Green Light Test (Ready)");
         telemetry.addData("DPad Down", "Manual Light Off Test");
-        telemetry.addData("DPad Left", "Manual White Light Test");
-        telemetry.addData("DPad Right", "Manual Test Position");
+        telemetry.addData("DPad Left", "Manual White Light Test (Spinning)");
+        telemetry.addData("DPad Right", "Manual Blue Light Test (AprilTag Missing)");
         telemetry.addData("Back Button", "Toggle Auto-Ball Management System");
         
         // Enhanced indexor status with stuck detection info
@@ -1570,6 +1590,13 @@ public class TeleOpDECODE extends LinearOpMode {
                 if (detection.metadata == null) {
                     telemetry.addData(String.format("⚠️ Tag #%d", i + 1), 
                         "ID %d (No metadata - may not be in library)", detection.id);
+                    continue;
+                }
+                
+                // Check if pose data is available
+                if (detection.ftcPose == null) {
+                    telemetry.addData(String.format("⚠️ Tag #%d", i + 1), 
+                        "ID %d (No pose data available)", detection.id);
                     continue;
                 }
                 

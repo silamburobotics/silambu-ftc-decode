@@ -122,20 +122,21 @@ public class AutoOpDECODE extends LinearOpMode {
     
     // COORDINATE TEST CONSTANTS - TEMPORARY FOR VERIFICATION
     public static final boolean ENABLE_COORDINATE_TEST = true; // Set to false to disable test mode
-    public static final double TEST_DRIVE_SPEED = 0.5;         // Increased speed for testing
-    public static final double TEST_PAUSE_TIME = 3.0;          // Increased pause duration at each waypoint
-    public static final double POSITION_TOLERANCE = 4.0;       // Reduced tolerance for reaching waypoints (inches)
+    public static final double TEST_DRIVE_SPEED = 0.3;         // Slower speed for better observation
+    public static final double TEST_PAUSE_TIME = 5.0;          // Longer pause duration for better observation
+    public static final double POSITION_TOLERANCE = 6.0;       // Slightly larger tolerance for testing
     
-    // Test waypoints sequence
+    // Test waypoints sequence - CENTER-BASED COORDINATE UNDERSTANDING TEST
     private static final double[][] TEST_WAYPOINTS = {
-        {30.0, 24.0},   // Point 1
-        {96.0, 24.0},   // Point 2
-        {30.0, 60.0},   // Point 3
-        {72.0, 72.0},   // Point 4 - Center field
-        {114.0, 60.0},  // Point 5
-        {30.0, 84.0},   // Point 6
-        {114.0, 84.0},  // Point 7
-        {72.0, 130.0}   // Point 8 - Final position near blue zone center
+        {72.0, 72.0},   // Point 1 - CENTER (start here)
+        {36.0, 108.0},  // Point 2 - TOP LEFT (from center: -36X, +36Y)
+        {72.0, 72.0},   // Point 3 - CENTER (return)
+        {108.0, 108.0}, // Point 4 - TOP RIGHT (from center: +36X, +36Y)
+        {72.0, 72.0},   // Point 5 - CENTER (return)
+        {36.0, 36.0},   // Point 6 - BOTTOM LEFT (from center: -36X, -36Y)
+        {72.0, 72.0},   // Point 7 - CENTER (return)
+        {108.0, 36.0},  // Point 8 - BOTTOM RIGHT (from center: +36X, -36Y)
+        {72.0, 72.0}    // Point 9 - CENTER (final return)
     };
     
     // Ball collection constants for coordinate test
@@ -1017,6 +1018,23 @@ public class AutoOpDECODE extends LinearOpMode {
         telemetry.addData("Target", "X: %.1f, Y: %.1f", targetX, targetY);
         telemetry.addData("Distance to Target", "%.1f inches", distance);
         telemetry.addData("Delta", "X: %.1f, Y: %.1f", deltaX, deltaY);
+        
+        // COORDINATE SYSTEM MOVEMENT DEBUGGING
+        telemetry.addData("🎯 Target From Center", "X: %+.1f, Y: %+.1f", targetX - 72.0, targetY - 72.0);
+        telemetry.addData("🤖 Robot From Center", "X: %+.1f, Y: %+.1f", robotX - 72.0, robotY - 72.0);
+        telemetry.addData("🔄 Movement Needed", "X: %+.1f, Y: %+.1f", deltaX, deltaY);
+        
+        // Explain what the robot should be doing
+        String movementExplanation = "";
+        if (Math.abs(deltaY) > 2.0) {
+            movementExplanation += (deltaY > 0) ? "Moving FORWARD (North) " : "Moving BACKWARD (South) ";
+        }
+        if (Math.abs(deltaX) > 2.0) {
+            movementExplanation += (deltaX > 0) ? "Strafing RIGHT (East)" : "Strafing LEFT (West)";
+        }
+        if (!movementExplanation.isEmpty()) {
+            telemetry.addData("🏃 Robot Action", movementExplanation.trim());
+        }
     }
     
     private boolean isAtPosition(double targetX, double targetY, double tolerance) {
@@ -1027,11 +1045,12 @@ public class AutoOpDECODE extends LinearOpMode {
     private void initializeFieldPosition() {
         // COORDINATE TEST MODE - Override starting position
         if (ENABLE_COORDINATE_TEST) {
-            robotX = 24.0;  // Test starting position - closer to first waypoint
-            robotY = 12.0;   // Test starting position - closer to first waypoint
+            robotX = 72.0;  // Start at CENTER field X
+            robotY = 72.0;  // Start at CENTER field Y
             robotHeading = 0.0;
-            telemetry.addData("🧪 COORDINATE TEST MODE", "ENABLED");
-            telemetry.addData("Test Starting Position", "X: %.1f, Y: %.1f", robotX, robotY);
+            telemetry.addData("🧪 COORDINATE TEST MODE", "ENABLED - CENTER-BASED MOVEMENT TEST");
+            telemetry.addData("Test Starting Position", "CENTER (%.1f, %.1f)", robotX, robotY);
+            telemetry.addData("Test Pattern", "Center→TopLeft→Center→TopRight→Center→BottomLeft→Center→BottomRight→Center");
             telemetry.addData("Test Waypoints", "%d total waypoints", TEST_WAYPOINTS.length);
             telemetry.addData("⚠️ CALIBRATION NEEDED", "Check INCHES_PER_ENCODER_TICK value!");
         } else {
@@ -1110,6 +1129,14 @@ public class AutoOpDECODE extends LinearOpMode {
             telemetry.addData("Current", "(%.1f, %.1f)", robotX, robotY);
             telemetry.addData("Distance", "%.1f inches", distance);
             telemetry.addData("Progress", "%d / %d waypoints", currentWaypointIndex + 1, TEST_WAYPOINTS.length);
+            
+            // ADD COORDINATE SYSTEM DEBUGGING
+            String targetDescription = getWaypointDescription(currentWaypointIndex);
+            double deltaX = targetX - 72.0; // Offset from center
+            double deltaY = targetY - 72.0; // Offset from center
+            telemetry.addData("📍 Target Location", targetDescription);
+            telemetry.addData("📏 From Center", "X: %+.1f, Y: %+.1f", deltaX, deltaY);
+            telemetry.addData("🧭 Movement Direction", getMovementDirection(deltaX, deltaY));
         }
         
         // Display test progress
@@ -1117,12 +1144,28 @@ public class AutoOpDECODE extends LinearOpMode {
         telemetry.addData("Test Speed", "%.1f power", TEST_DRIVE_SPEED);
         telemetry.addData("Position Tolerance", "%.1f inches", POSITION_TOLERANCE);
         
+        // ENHANCED COORDINATE SYSTEM DEBUGGING
+        telemetry.addData("📐 COORDINATE SYSTEM", "Field Center = (72, 72)");
+        telemetry.addData("📍 Current From Center", "X: %+.1f, Y: %+.1f", robotX - 72.0, robotY - 72.0);
+        
+        // Current location description
+        String currentLocation = "";
+        double currentDeltaX = robotX - 72.0;
+        double currentDeltaY = robotY - 72.0;
+        if (Math.abs(currentDeltaX) < 4.0 && Math.abs(currentDeltaY) < 4.0) {
+            currentLocation = "AT CENTER";
+        } else {
+            currentLocation = getMovementDirection(currentDeltaX, currentDeltaY);
+        }
+        telemetry.addData("📍 Current Zone", currentLocation);
+        
         // Show upcoming waypoints
         if (currentWaypointIndex + 1 < TEST_WAYPOINTS.length) {
             double nextX = TEST_WAYPOINTS[currentWaypointIndex + 1][0];
             double nextY = TEST_WAYPOINTS[currentWaypointIndex + 1][1];
-            telemetry.addData("Next Waypoint", "%d: (%.1f, %.1f)", 
-                            currentWaypointIndex + 2, nextX, nextY);
+            String nextDescription = getWaypointDescription(currentWaypointIndex + 1);
+            telemetry.addData("⏭️ Next Waypoint", "%d: %s", currentWaypointIndex + 2, nextDescription);
+            telemetry.addData("⏭️ Next Coordinates", "(%.1f, %.1f)", nextX, nextY);
         }
     }
     
@@ -1251,5 +1294,45 @@ public class AutoOpDECODE extends LinearOpMode {
                 currentState = AutoState.COMPLETE;
             }
         }
+    }
+    
+    // COORDINATE SYSTEM DEBUGGING HELPERS
+    private String getWaypointDescription(int waypointIndex) {
+        switch(waypointIndex) {
+            case 0: return "CENTER (Starting Point)";
+            case 1: return "TOP LEFT (-36X, +36Y from center)";
+            case 2: return "CENTER (Return from Top Left)";
+            case 3: return "TOP RIGHT (+36X, +36Y from center)";
+            case 4: return "CENTER (Return from Top Right)";
+            case 5: return "BOTTOM LEFT (-36X, -36Y from center)";
+            case 6: return "CENTER (Return from Bottom Left)";
+            case 7: return "BOTTOM RIGHT (+36X, -36Y from center)";
+            case 8: return "CENTER (Final Return)";
+            default: return "Unknown Waypoint";
+        }
+    }
+    
+    private String getMovementDirection(double deltaX, double deltaY) {
+        if (Math.abs(deltaX) < 2.0 && Math.abs(deltaY) < 2.0) {
+            return "AT CENTER";
+        }
+        
+        String direction = "";
+        
+        // Determine Y direction (North/South)
+        if (deltaY > 2.0) {
+            direction += "NORTH ";
+        } else if (deltaY < -2.0) {
+            direction += "SOUTH ";
+        }
+        
+        // Determine X direction (East/West)
+        if (deltaX > 2.0) {
+            direction += "EAST";
+        } else if (deltaX < -2.0) {
+            direction += "WEST";
+        }
+        
+        return direction.trim();
     }
 }
