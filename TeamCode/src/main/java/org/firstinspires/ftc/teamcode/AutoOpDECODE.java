@@ -110,7 +110,7 @@ public class AutoOpDECODE extends LinearOpMode {
     public static final double SCORING_ZONE_BLUE_Y = 120.0; // Blue scoring zone
     
     // Movement constants
-    public static final double INCHES_PER_ENCODER_TICK = 0.05; // Calibrate this for your wheels
+    public static final double INCHES_PER_ENCODER_TICK = 0.05; // ⚠️ CALIBRATE THIS for your wheels!
     public static final double ROBOT_WIDTH = 18.0;          // Robot width in inches
     public static final double ROBOT_LENGTH = 18.0;         // Robot length in inches
     
@@ -121,10 +121,10 @@ public class AutoOpDECODE extends LinearOpMode {
     public static final double FIRING_SEQUENCE_TIME = 1.5;  // seconds - time for firing sequence
     
     // COORDINATE TEST CONSTANTS - TEMPORARY FOR VERIFICATION
-    public static final boolean ENABLE_COORDINATE_TEST = true;  // Set to false to disable test mode
-    public static final double TEST_DRIVE_SPEED = 0.3;         // Slower speed for testing
-    public static final double TEST_PAUSE_TIME = 2.0;          // Pause duration at each waypoint
-    public static final double POSITION_TOLERANCE = 6.0;       // Tolerance for reaching waypoints (inches)
+    public static final boolean ENABLE_COORDINATE_TEST = true; // Set to false to disable test mode
+    public static final double TEST_DRIVE_SPEED = 0.5;         // Increased speed for testing
+    public static final double TEST_PAUSE_TIME = 3.0;          // Increased pause duration at each waypoint
+    public static final double POSITION_TOLERANCE = 4.0;       // Reduced tolerance for reaching waypoints (inches)
     
     // Test waypoints sequence
     private static final double[][] TEST_WAYPOINTS = {
@@ -865,6 +865,25 @@ public class AutoOpDECODE extends LinearOpMode {
         telemetry.addData("Runtime", "%.1f seconds", runtime.seconds());
         telemetry.addData("Stage Timer", "%.1f seconds", stageTimer.seconds());
         
+        // COORDINATE TEST MODE DEBUGGING
+        if (ENABLE_COORDINATE_TEST) {
+            telemetry.addData("🧪 TEST MODE", "ACTIVE - Debug Info Below");
+            telemetry.addData("Waypoint Progress", "%d / %d", currentWaypointIndex + 1, TEST_WAYPOINTS.length);
+            if (currentWaypointIndex < TEST_WAYPOINTS.length) {
+                double targetX = TEST_WAYPOINTS[currentWaypointIndex][0];
+                double targetY = TEST_WAYPOINTS[currentWaypointIndex][1];
+                double distance = Math.sqrt(Math.pow(targetX - robotX, 2) + Math.pow(targetY - robotY, 2));
+                telemetry.addData("Current Target", "(%.1f, %.1f)", targetX, targetY);
+                telemetry.addData("Distance to Target", "%.1f inches", distance);
+                telemetry.addData("Reached?", waypointReached ? "YES" : "NO");
+                telemetry.addData("Pausing?", isPausing ? "YES" : "NO");
+            }
+            telemetry.addData("🔧 Encoders", "L:%d R:%d S:%d", 
+                            leftFront.getCurrentPosition(), 
+                            rightFront.getCurrentPosition(), 
+                            leftBack.getCurrentPosition());
+        }
+        
         // Display ball collection progress
         telemetry.addData("Balls Collected", "%d of %d", ballsCollected, MAX_BALLS_TO_COLLECT);
         if (ballsCollected < MAX_BALLS_TO_COLLECT) {
@@ -965,29 +984,39 @@ public class AutoOpDECODE extends LinearOpMode {
         double deltaX = targetX - robotX;
         double deltaY = targetY - robotY;
         double distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
-        double targetAngle = Math.toDegrees(Math.atan2(deltaY, deltaX));
         
-        // Calculate heading error
-        double headingError = targetAngle - robotHeading;
-        if (headingError > 180) headingError -= 360;
-        if (headingError < -180) headingError += 360;
+        // If very close, stop
+        if (distance < 2.0) {
+            stopDriveMotors();
+            return;
+        }
         
-        // Calculate drive powers
-        double drivePower = Math.min(maxPower, distance * 0.05); // Proportional to distance
-        double turnPower = Math.max(-0.3, Math.min(0.3, headingError * 0.02)); // Proportional to heading error
+        // Simple robot-relative movement (not field-relative for testing)
+        double forwardPower = Math.max(0.15, Math.min(maxPower, distance * 0.08)); // Minimum 15% power
+        double strafePower = Math.max(-maxPower, Math.min(maxPower, deltaX * 0.08));
         
-        // Apply mecanum drive with field-relative movement
-        double headingRad = Math.toRadians(robotHeading);
-        double fieldRelativeX = deltaX * Math.cos(headingRad) + deltaY * Math.sin(headingRad);
-        double fieldRelativeY = -deltaX * Math.sin(headingRad) + deltaY * Math.cos(headingRad);
+        // Only use Y component for forward/backward
+        if (deltaY > 2.0) {
+            forwardPower = Math.max(0.15, Math.min(maxPower, deltaY * 0.08));
+        } else if (deltaY < -2.0) {
+            forwardPower = -Math.max(0.15, Math.min(maxPower, Math.abs(deltaY) * 0.08));
+        } else {
+            forwardPower = 0;
+        }
         
-        double strafePower = Math.max(-maxPower, Math.min(maxPower, fieldRelativeX * 0.05));
+        // Use X component for strafe
+        if (Math.abs(deltaX) > 2.0) {
+            strafePower = Math.max(-maxPower, Math.min(maxPower, deltaX * 0.08));
+        } else {
+            strafePower = 0;
+        }
         
-        setMecanumPower(drivePower, strafePower, turnPower, 0);
+        setMecanumPower(forwardPower, strafePower, 0, 0); // No turning for simplicity
         
+        telemetry.addData("🧪 DRIVE", "Forward: %.2f, Strafe: %.2f", forwardPower, strafePower);
         telemetry.addData("Target", "X: %.1f, Y: %.1f", targetX, targetY);
         telemetry.addData("Distance to Target", "%.1f inches", distance);
-        telemetry.addData("Heading Error", "%.1f degrees", headingError);
+        telemetry.addData("Delta", "X: %.1f, Y: %.1f", deltaX, deltaY);
     }
     
     private boolean isAtPosition(double targetX, double targetY, double tolerance) {
@@ -998,12 +1027,13 @@ public class AutoOpDECODE extends LinearOpMode {
     private void initializeFieldPosition() {
         // COORDINATE TEST MODE - Override starting position
         if (ENABLE_COORDINATE_TEST) {
-            robotX = 48.0;  // Test starting position
-            robotY = 0.0;   // Test starting position
+            robotX = 24.0;  // Test starting position - closer to first waypoint
+            robotY = 12.0;   // Test starting position - closer to first waypoint
             robotHeading = 0.0;
             telemetry.addData("🧪 COORDINATE TEST MODE", "ENABLED");
             telemetry.addData("Test Starting Position", "X: %.1f, Y: %.1f", robotX, robotY);
             telemetry.addData("Test Waypoints", "%d total waypoints", TEST_WAYPOINTS.length);
+            telemetry.addData("⚠️ CALIBRATION NEEDED", "Check INCHES_PER_ENCODER_TICK value!");
         } else {
             // Normal starting position
             robotX = BLUE_ROBOT_START_X;  // Use the configured blue robot start position
