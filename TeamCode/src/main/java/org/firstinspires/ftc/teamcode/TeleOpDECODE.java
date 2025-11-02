@@ -140,8 +140,8 @@ public class TeleOpDECODE extends LinearOpMode {
     public static final double SHOOTER_SERVO_POWER = 1.0; // Positive for forward direction
     
     // Trigger servo position settings (0.0 = 0 degrees, 1.0 = 180 degrees)
-    public static final double TRIGGER_FIRE = 0.25;     // 45 degrees (45/180 = 0.25) - NOW HOME POSITION
-    public static final double TRIGGER_HOME = 0.76;     // 137 degrees (137/180 = 0.76) - NOW RETRACTED POSITION
+    public static final double TRIGGER_FIRE = 0.25;     // 45 degrees (45/180 = 0.25) - FIRE POSITION (compact)
+    public static final double TRIGGER_HOME = 0.76;     // 137 degrees (137/180 = 0.76) - HOME/SAFE POSITION (retracted)
     
     // AprilTag alignment settings
     public static final double HEADING_TOLERANCE = 2.0; // degrees
@@ -323,7 +323,7 @@ public class TeleOpDECODE extends LinearOpMode {
         
         // Initialize servos to starting positions
         shooterServo.setPower(0);
-        triggerServo.setPosition(TRIGGER_FIRE); // Start at fire position (now home position - 45 degrees)
+        triggerServo.setPosition(TRIGGER_HOME); // Start at HOME position (safe position - 137 degrees)
         
         // Initialize speed light to off
         speedLight.setPosition(LIGHT_OFF_POSITION); // Start with light off
@@ -880,6 +880,15 @@ public class TeleOpDECODE extends LinearOpMode {
     }
     
     private void toggleTriggerServo() {
+        // Check if intake is running - safety first!
+        boolean intakeRunning = Math.abs(intake.getPower()) > 0.1;
+        if (intakeRunning) {
+            telemetry.addData("🚫 TRIGGER BLOCKED", "Cannot move trigger while intake is running");
+            telemetry.addData("💡 Safety Tip", "Stop intake (A button) before using trigger");
+            telemetry.update();
+            return;
+        }
+        
         // Mark as manual control and reset timer
         manualTriggerControl = true;
         triggerManualTimer.reset();
@@ -892,32 +901,21 @@ public class TeleOpDECODE extends LinearOpMode {
             telemetry.addData("Trigger Servo", "ALIGNED MODE - AprilTag detected");
         }
         
-        // Check current position and toggle between fire (60° - home) and retracted (137°)
+        // Check current position and toggle between HOME (safe) and FIRE positions
         double currentPosition = triggerServo.getPosition();
         
         if (Math.abs(currentPosition - TRIGGER_FIRE) < 0.1) {
-            // Currently at fire position (60 degrees - home), move to retracted position (137 degrees)
+            // Currently at FIRE position, move to HOME/safe position
             triggerServo.setPosition(TRIGGER_HOME);
-            telemetry.addData("Trigger Servo", "RETRACTING! Moving to 137 degrees");
+            telemetry.addData("Trigger Servo", "MOVING TO HOME (safe position - 137°)");
             if (isAlignedToTag) {
-                telemetry.addData("AprilTag", "Aligned - trigger retracted!");
+                telemetry.addData("AprilTag", "Aligned - trigger moved to safe position");
             }
         } else {
-            // Currently at retracted position (120 degrees), return to fire position (60 degrees - home)
+            // Currently at HOME position, move to FIRE position 
             triggerServo.setPosition(TRIGGER_FIRE);
-            
-            // Stop intake when trigger moves to fire position for safety
-            boolean intakeWasRunning = Math.abs(intake.getPower()) > 0.1;
-            if (intakeWasRunning) {
-                intake.setPower(0);
-                // Also stop conveyor unless indexor is running
-                if (!indexorIsRunning) {
-                    conveyor.setPower(0);
-                }
-                telemetry.addData("🚫 SAFETY", "Intake STOPPED - Trigger moved to FIRE position");
-            }
-            
-            telemetry.addData("Trigger Servo", "Returning to fire position (45 degrees)");
+            telemetry.addData("Trigger Servo", "MOVING TO FIRE POSITION (45°)");
+            telemetry.addData("🎯 READY", "Trigger in firing position!");
         }
         telemetry.update();
     }
@@ -1141,10 +1139,10 @@ public class TeleOpDECODE extends LinearOpMode {
             boolean intakeRunning = Math.abs(intake.getPower()) > 0.1;
             
             if (intakeRunning) {
-                // Keep trigger in fire position when intake is running (fire is now home position)
-                if (Math.abs(currentTriggerPosition - TRIGGER_FIRE) > 0.05) {
-                    triggerServo.setPosition(TRIGGER_FIRE);
-                    telemetry.addData("🤖 AUTO-TRIGGER", "Set to FIRE position (intake running)");
+                // Keep trigger in HOME position when intake is running (safety first!)
+                if (Math.abs(currentTriggerPosition - TRIGGER_HOME) > 0.05) {
+                    triggerServo.setPosition(TRIGGER_HOME);
+                    telemetry.addData("🤖 AUTO-TRIGGER", "Set to HOME position (intake running - safety)");
                 }
             }
             // Note: We don't auto-move to fire position to avoid accidental firing
@@ -1514,44 +1512,67 @@ public class TeleOpDECODE extends LinearOpMode {
     }
     
     private void toggleBallAlignment() {
-        if (ballAlignmentActive) {
-            // Stop ball alignment
+        try {
+            if (ballAlignmentActive) {
+                // Stop ball alignment
+                ballAlignmentActive = false;
+                // Stop all drive motors
+                leftFront.setPower(0);
+                rightFront.setPower(0);
+                leftBack.setPower(0);
+                rightBack.setPower(0);
+                telemetry.addData("⚽ Ball Alignment", "STOPPED by driver");
+            } else {
+                // Check if ball detector is available
+                if (ballDetector == null) {
+                    telemetry.addData("❌ Ball Alignment", "Ball detector not initialized");
+                    telemetry.addData("💡 Solution", "Ball detection requires VisionProcessor integration");
+                    telemetry.update();
+                    return;
+                }
+                
+                // Start ball alignment
+                ballAlignmentActive = true;
+                ballAlignmentTimer.reset();
+                telemetry.addData("⚽ Ball Alignment", "STARTED - Looking for nearest ball");
+                telemetry.addData("💡 Tip", "Point camera toward balls");
+                telemetry.addData("⚠️ Note", "Ball detection is currently standalone - manual mode recommended");
+            }
+            telemetry.update();
+        } catch (Exception e) {
+            telemetry.addData("❌ Ball Alignment Error", e.getMessage());
+            telemetry.addData("🛠️ Debug", "Exception in toggleBallAlignment()");
             ballAlignmentActive = false;
-            // Stop all drive motors
-            leftFront.setPower(0);
-            rightFront.setPower(0);
-            leftBack.setPower(0);
-            rightBack.setPower(0);
-            telemetry.addData("⚽ Ball Alignment", "STOPPED by driver");
-        } else {
-            // Start ball alignment
-            ballAlignmentActive = true;
-            ballAlignmentTimer.reset();
-            telemetry.addData("⚽ Ball Alignment", "STARTED - Looking for nearest ball");
-            telemetry.addData("💡 Tip", "Point camera toward balls");
+            telemetry.update();
         }
-        telemetry.update();
     }
     
     private void handleBallAlignment() {
-        // Check if ball alignment should timeout
-        if (ballAlignmentActive && ballAlignmentTimer.seconds() > BALL_ALIGNMENT_TIMEOUT) {
-            ballAlignmentActive = false;
-            leftFront.setPower(0);
-            rightFront.setPower(0);
-            leftBack.setPower(0);
-            rightBack.setPower(0);
-            telemetry.addData("⚽ Ball Alignment", "TIMEOUT - Manual control resumed");
-            return;
-        }
-        
-        // Only run ball alignment if active
-        if (!ballAlignmentActive) {
-            return;
-        }
-        
-        // Get ball detection results
-        if (ballDetector != null) {
+        try {
+            // Check if ball alignment should timeout
+            if (ballAlignmentActive && ballAlignmentTimer.seconds() > BALL_ALIGNMENT_TIMEOUT) {
+                ballAlignmentActive = false;
+                leftFront.setPower(0);
+                rightFront.setPower(0);
+                leftBack.setPower(0);
+                rightBack.setPower(0);
+                telemetry.addData("⚽ Ball Alignment", "TIMEOUT - Manual control resumed");
+                return;
+            }
+            
+            // Only run ball alignment if active
+            if (!ballAlignmentActive) {
+                return;
+            }
+            
+            // Check if ball detector is available
+            if (ballDetector == null) {
+                telemetry.addData("❌ Ball Detection", "Detector not available");
+                ballAlignmentActive = false;
+                return;
+            }
+            
+            // Get ball detection results
             nearestBallCenter = ballDetector.getBallCenter();
             ballDetected = ballDetector.isBallDetected();
             
@@ -1608,6 +1629,15 @@ public class TeleOpDECODE extends LinearOpMode {
                 telemetry.addData("⚽ Ball Alignment", "🔍 SEARCHING FOR BALL...");
                 telemetry.addData("Status", "No balls detected - adjust camera angle");
             }
+        } catch (Exception e) {
+            telemetry.addData("❌ Ball Alignment Error", e.getMessage());
+            telemetry.addData("🛠️ Debug", "Exception in handleBallAlignment()");
+            ballAlignmentActive = false;
+            // Stop all motors as safety measure
+            leftFront.setPower(0);
+            rightFront.setPower(0);
+            leftBack.setPower(0);
+            rightBack.setPower(0);
         }
     }
     
