@@ -105,6 +105,9 @@ public class TeleOpDECODE extends LinearOpMode {
     private Point nearestBallCenter = null; // Detected ball center position
     private boolean ballDetected = false; // Track if any ball is detected
     
+    // Manual indexor control
+    private boolean manualIndexorControl = false; // Track if indexor is under manual joystick control
+    
     // Auto-ball management system variables
     private boolean autoBallSystemEnabled = true;  // Enable automatic ball management
     private boolean previousBallAtIntake = false;  // Previous ball detection state
@@ -165,7 +168,11 @@ public class TeleOpDECODE extends LinearOpMode {
     
     // Auto-ball management system settings
     public static final double BALL_DETECTION_DEBOUNCE = 0.3; // Seconds to wait before confirming ball detection
-    public static final double AUTO_INDEXOR_POWER = 0.3;      // Power for automatic indexor movement
+    public static final double AUTO_INDEXOR_POWER = 0.1;      // Power for automatic indexor movement
+    
+    // Manual indexor joystick control settings
+    public static final double MANUAL_INDEXOR_POWER = 0.1;    // 10% power for manual joystick control
+    public static final double JOYSTICK_DEADZONE = 0.1;       // Deadzone to prevent drift
     
     // Trigger servo automatic management settings
     public static final double MANUAL_TRIGGER_TIMEOUT = 3.0;  // Seconds before auto-management resumes
@@ -240,6 +247,8 @@ public class TeleOpDECODE extends LinearOpMode {
         telemetry.addData("X Button", "Indexor (120 degrees)");
         telemetry.addData("Y Button", "Shooter + Shooter Servo");
         telemetry.addData("B Button", "Trigger Servo (fire ↔ retract)");
+        telemetry.addData("Right Stick Y", "Manual Indexor (10% power)");
+        telemetry.addData("📌 Manual Mode", "Stick overrides buttons, Trigger→HOME on reverse");
         telemetry.addData("AprilTag", "Looking for Blue ID %d", TARGET_TAG_ID);
         telemetry.addData("🤖 Auto-Ball System", "Auto-advances balls when intake running");
         telemetry.addData("🤖 Auto-Trigger", "Keeps trigger HOME when intake running");
@@ -618,6 +627,9 @@ public class TeleOpDECODE extends LinearOpMode {
             toggleTriggerServo();
         }
         
+        // Handle manual indexor control with gamepad2 right joystick
+        handleManualIndexorControl();
+        
         // Update previous button states
         previousA = currentA;
         previousX = currentX; // Add X button state tracking
@@ -663,13 +675,19 @@ public class TeleOpDECODE extends LinearOpMode {
     }
     
     private void runIndexorToPosition(int ticks) {
+        // Don't start automatic movement if manual control is active
+        if (manualIndexorControl) {
+            telemetry.addData("⚠️ Manual Control Active", "Release joystick for automatic indexor movement");
+            return;
+        }
+        
         // Set target position
         int currentPosition = indexor.getCurrentPosition();
         int targetPosition = currentPosition + ticks;
         
         indexor.setTargetPosition(targetPosition);
         indexor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
-        indexor.setPower(0.3);
+        indexor.setPower(AUTO_INDEXOR_POWER);
         
         // Start stuck detection tracking
         indexorTimer.reset();
@@ -789,7 +807,7 @@ public class TeleOpDECODE extends LinearOpMode {
         
         indexor.setTargetPosition(reverseTarget);
         indexor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
-        indexor.setPower(0.3);
+        indexor.setPower(AUTO_INDEXOR_POWER);
         
         // Reset timers for recovery phase
         indexorTimer.reset();
@@ -808,7 +826,7 @@ public class TeleOpDECODE extends LinearOpMode {
         // Set target back to original goal
         indexor.setTargetPosition(indexorOriginalTarget);
         indexor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
-        indexor.setPower(0.3);
+        indexor.setPower(AUTO_INDEXOR_POWER);
         
         // Reset tracking for retry
         indexorTimer.reset();
@@ -877,6 +895,57 @@ public class TeleOpDECODE extends LinearOpMode {
             telemetry.addData("Speed Light", "Monitoring speed...");
         }
         telemetry.update();
+    }
+    
+    private void handleManualIndexorControl() {
+        // Get gamepad2 right joystick Y value for manual indexor control
+        double joystickY = -gamepad2.right_stick_y; // Negative for intuitive control (up = forward)
+        
+        // Apply deadzone
+        if (Math.abs(joystickY) < JOYSTICK_DEADZONE) {
+            joystickY = 0.0;
+        }
+        
+        // Check if joystick is being actively used
+        boolean joystickActive = Math.abs(joystickY) > 0.0;
+        
+        if (joystickActive) {
+            // Joystick is active - switch to manual control
+            if (!manualIndexorControl) {
+                // Stop any automated indexor movement
+                if (indexorIsRunning) {
+                    indexor.setPower(0);
+                    indexor.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
+                    indexorIsRunning = false;
+                    indexorIsRecovering = false;
+                    telemetry.addData("Indexor", "Manual control override");
+                }
+                manualIndexorControl = true;
+            }
+            
+            // Set manual indexor power
+            double indexorPower = joystickY * MANUAL_INDEXOR_POWER;
+            indexor.setPower(indexorPower);
+            
+            // Check if indexor is moving in reverse (negative power)
+            if (indexorPower < -0.05) { // Small threshold to avoid noise
+                // Indexor is rotating reverse - set trigger to home position
+                if (Math.abs(triggerServo.getPosition() - TRIGGER_HOME) > 0.05) {
+                    triggerServo.setPosition(TRIGGER_HOME);
+                    telemetry.addData("🔧 Auto-Safety", "Trigger moved to HOME (reverse rotation detected)");
+                }
+            }
+            
+            telemetry.addData("Indexor Manual", "Power: %.2f (%.0f%%)", indexorPower, indexorPower * 100);
+            telemetry.addData("Control Mode", "MANUAL - Right Joystick");
+            
+        } else if (manualIndexorControl) {
+            // Joystick released - stop indexor and return to automatic mode
+            indexor.setPower(0);
+            manualIndexorControl = false;
+            telemetry.addData("Indexor Manual", "STOPPED - Released");
+            telemetry.addData("Control Mode", "AUTO - Buttons Active");
+        }
     }
     
     private void toggleTriggerServo() {
@@ -1402,6 +1471,8 @@ public class TeleOpDECODE extends LinearOpMode {
         telemetry.addData("X Button", "Move Indexor 120 degrees");
         telemetry.addData("Y Button", "Toggle Shooter + Shooter Servo");
         telemetry.addData("B Button", "Toggle Trigger Servo (60-120°)");
+        telemetry.addData("Right Stick Y", "Manual Indexor Control (40% power)");
+        telemetry.addData("📌 Manual Mode", "Joystick overrides buttons, Auto-trigger on reverse");
         telemetry.addData("DPad Up", "Manual Green Light Test");
         telemetry.addData("DPad Down", "Manual Light Off Test");
         telemetry.addData("DPad Left", "Manual White Light Test");
