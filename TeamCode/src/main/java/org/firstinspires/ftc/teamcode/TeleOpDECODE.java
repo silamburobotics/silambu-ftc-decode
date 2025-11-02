@@ -642,7 +642,7 @@ public class TeleOpDECODE extends LinearOpMode {
     private void handleMecanumDrive() {
         // Get joystick inputs
         double drive = -gamepad1.left_stick_y;  // Forward/backward (reversed: negative for forward - robot facing swapped)
-        double strafe = -gamepad1.left_stick_x; // Left/right strafe (swapped: negative for right strafe)
+        double strafe = gamepad1.left_stick_x;  // Left/right strafe (normal: positive for right strafe)
         double turn = -gamepad1.right_stick_x;  // Rotation (swapped: negative for right turn)
         
         // Apply speed multipliers
