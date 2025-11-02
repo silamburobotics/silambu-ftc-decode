@@ -14,15 +14,36 @@ import com.qualcomm.robotcore.hardware.NormalizedRGBA;
 import com.qualcomm.robotcore.util.ElapsedTime;
 
 import org.firstinspires.ftc.robotcore.external.hardware.camera.WebcamName;
+import org.firstinspires.ftc.robotcore.external.hardware.camera.controls.ExposureControl;
+import org.firstinspires.ftc.robotcore.external.hardware.camera.controls.GainControl;
+import org.firstinspires.ftc.robotcore.external.hardware.camera.controls.FocusControl;
+import org.firstinspires.ftc.robotcore.external.hardware.camera.controls.WhiteBalanceControl;
 import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
 import org.firstinspires.ftc.vision.VisionPortal;
 import org.firstinspires.ftc.vision.apriltag.AprilTagDetection;
 import org.firstinspires.ftc.vision.apriltag.AprilTagProcessor;
 import org.firstinspires.ftc.vision.apriltag.AprilTagGameDatabase;
+import org.opencv.core.Core;
+import org.opencv.core.Mat;
+import org.opencv.core.MatOfPoint;
+import org.opencv.core.Point;
+import org.opencv.core.Scalar;
+import org.opencv.core.Size;
+import org.opencv.imgproc.Imgproc;
+import org.opencv.imgproc.Moments;
+import org.firstinspires.ftc.robotcore.external.function.Consumer;
+import org.firstinspires.ftc.robotcore.external.function.Continuation;
+import org.firstinspires.ftc.robotcore.external.stream.CameraStreamSource;
+import org.firstinspires.ftc.vision.VisionProcessor;
+import org.firstinspires.ftc.robotcore.external.ClassFactory;
+import org.firstinspires.ftc.robotcore.external.hardware.camera.CameraCalibration;
+import android.graphics.Canvas;
+import java.util.ArrayList;
 
 import android.util.Size;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 @Config
 @TeleOp(name = "TeleOpDECODE", group = "TeleOp")
 public class TeleOpDECODE extends LinearOpMode {
@@ -54,6 +75,7 @@ public class TeleOpDECODE extends LinearOpMode {
     // AprilTag detection
     private VisionPortal visionPortal;
     private AprilTagProcessor aprilTag;
+    private BallDetectionProcessor ballDetector;
     
     // Variables to track button states
     private boolean previousX = false;
@@ -78,6 +100,12 @@ public class TeleOpDECODE extends LinearOpMode {
     // AprilTag auto-alignment
     private boolean autoAlignmentActive = false; // Track if auto-alignment is active
     private ElapsedTime autoAlignmentTimer = new ElapsedTime(); // Timer for alignment timeout
+    
+    // Ball detection and alignment
+    private boolean ballAlignmentActive = false; // Track if ball alignment is active
+    private ElapsedTime ballAlignmentTimer = new ElapsedTime(); // Timer for ball alignment timeout
+    private Point nearestBallCenter = null; // Detected ball center position
+    private boolean ballDetected = false; // Track if any ball is detected
     
     // Auto-ball management system variables
     private boolean autoBallSystemEnabled = true;  // Enable automatic ball management
@@ -107,15 +135,15 @@ public class TeleOpDECODE extends LinearOpMode {
     // Indexor stuck detection settings
     public static final double INDEXOR_TIMEOUT = 1.0;       // seconds - max time for indexor to complete (reduced for faster recovery)
     public static final int INDEXOR_PROGRESS_THRESHOLD = 10; // minimum ticks of progress required
-    public static final double INDEXOR_PROGRESS_CHECK_TIME = 2.0; // seconds between progress checks
-    public static final int INDEXOR_REVERSE_TICKS = 60;     // 20 degrees reverse for stuck recovery (60 ticks ≈ 20°)
+    public static final double INDEXOR_PROGRESS_CHECK_TIME = 1.0; // seconds between progress checks (reduced for faster detection)
+    public static final int INDEXOR_REVERSE_TICKS = 90;     // 30 degrees reverse for stuck recovery (90 ticks ≈ 30°)
     
     // Servo power settings
     public static final double SHOOTER_SERVO_POWER = 1.0; // Positive for forward direction
     
     // Trigger servo position settings (0.0 = 0 degrees, 1.0 = 180 degrees)
-    public static final double TRIGGER_FIRE = 0.667;    // 120 degrees (120/180 = 0.667)
-    public static final double TRIGGER_HOME = 0.333;    // 60 degrees (60/180 = 0.333)
+    public static final double TRIGGER_FIRE = 0.25;     // 45 degrees (45/180 = 0.25) - NOW HOME POSITION
+    public static final double TRIGGER_HOME = 0.76;     // 137 degrees (137/180 = 0.76) - NOW RETRACTED POSITION
     
     // AprilTag alignment settings
     public static final double HEADING_TOLERANCE = 2.0; // degrees
@@ -151,11 +179,18 @@ public class TeleOpDECODE extends LinearOpMode {
     public static final double ALIGNMENT_POSITION_TOLERANCE = 2.0; // inches for position alignment
     public static final double ALIGNMENT_HEADING_TOLERANCE = 3.0;  // degrees for heading alignment
     
-    // Camera-based alignment settings (pixel coordinates)
-    public static final double CAMERA_CENTER_X = 320.0;      // Camera center X (640/2)
-    public static final double CAMERA_CENTER_Y = 240.0;      // Camera center Y (480/2)
+    // Camera-based alignment settings (pixel coordinates for 1280x720)
+    public static final double CAMERA_CENTER_X = 640.0;      // Camera center X (1280/2)
+    public static final double CAMERA_CENTER_Y = 360.0;      // Camera center Y (720/2)
     public static final double PIXEL_ALIGNMENT_TOLERANCE = 20.0; // pixels from center
     public static final double PIXEL_ALIGNMENT_POWER = 0.01;    // Power per pixel error (increased from 0.002)
+    
+    // Ball detection and alignment settings
+    public static final double BALL_ALIGNMENT_TIMEOUT = 8.0;    // Seconds before ball alignment stops
+    public static final double BALL_ALIGNMENT_DRIVE_POWER = 0.25; // Power for ball alignment movements
+    public static final double BALL_ALIGNMENT_TURN_POWER = 0.2;   // Power for ball alignment rotation
+    public static final double BALL_PIXEL_TOLERANCE = 30.0;      // pixels from center for ball alignment
+    public static final double BALL_PIXEL_POWER = 0.008;         // Power per pixel error for ball alignment
     
     // Bearing-based alignment settings (angle-based alignment)
     public static final double BEARING_ALIGNMENT_TOLERANCE = 5.0; // degrees - target bearing tolerance
@@ -182,6 +217,7 @@ public class TeleOpDECODE extends LinearOpMode {
         telemetry.addData("Status", "Initialized");
         telemetry.addData("=== GAMEPAD 1 (DRIVER) ===", "");
         telemetry.addData("A Button", "Intake + Converyor");
+        telemetry.addData("X Button", "⚽ Align to Nearest Ball (Arducam)");
         telemetry.addData("Left Stick", "Drive/Strafe");
         telemetry.addData("Right Stick X", "Turn");
         telemetry.addData("Back Button", "Toggle Auto-Ball System");
@@ -189,7 +225,7 @@ public class TeleOpDECODE extends LinearOpMode {
         telemetry.addData("A Button", "Auto-Align to AprilTag 20");
         telemetry.addData("X Button", "Indexor (120 degrees)");
         telemetry.addData("Y Button", "Shooter + Shooter Servo");
-        telemetry.addData("B Button", "Trigger Servo (60-120°)");
+        telemetry.addData("B Button", "Trigger Servo (fire ↔ retract)");
         telemetry.addData("AprilTag", "Looking for Blue ID %d", TARGET_TAG_ID);
         telemetry.addData("🤖 Auto-Ball System", "Auto-advances balls when intake running");
         telemetry.addData("🤖 Auto-Trigger", "Keeps trigger HOME when intake running");
@@ -200,12 +236,14 @@ public class TeleOpDECODE extends LinearOpMode {
         // Run until the end of the match (driver presses STOP)
         while (opModeIsActive()) {
             handleControllerInputs();
-            if (!autoAlignmentActive) {
+            if (!autoAlignmentActive && !ballAlignmentActive) {
                 handleMecanumDrive(); // Only manual drive if not auto-aligning
             }
             handleAprilTagAlignment();
             handleAutoAlignment(); // AprilTag auto-alignment system
+            handleBallAlignment(); // Ball detection and alignment system
             showAprilTagDebugInfo(); // Always show detected tag IDs
+            updateBallDetectionTelemetry(); // Show ball detection info
             checkIndexorCompletion();
             readColorSensors();
             handleAutoBallManagement(); // Automatic ball management system
@@ -271,7 +309,7 @@ public class TeleOpDECODE extends LinearOpMode {
         
         // Initialize servos to starting positions
         shooterServo.setPower(0);
-        triggerServo.setPosition(TRIGGER_FIRE); // Start at home position (120 degrees)
+        triggerServo.setPosition(TRIGGER_FIRE); // Start at fire position (now home position - 45 degrees)
         
         // Initialize speed light to off
         speedLight.setPosition(LIGHT_OFF_POSITION); // Start with light off
@@ -312,33 +350,98 @@ public class TeleOpDECODE extends LinearOpMode {
                 .setTagFamily(AprilTagProcessor.TagFamily.TAG_36h11)
                 // .setTagLibrary(AprilTagGameDatabase.getCenterStageTagLibrary()) // Comment out to detect any TAG_36h11
                 .setOutputUnits(DistanceUnit.INCH, AngleUnit.DEGREES)
-                .setLensIntrinsics(578.272, 578.272, 320.0, 240.0) // Optional: camera calibration
+                // Arducam OV9281 optimized lens intrinsics for 1280x720 resolution
+                .setLensIntrinsics(1156.544, 1156.544, 640.0, 360.0) // fx, fy, cx, cy for 1280x720
                 .build();
 
-        // Create the vision portal
+        // Create the vision portal with Arducam OV9281 specific settings
         VisionPortal.Builder builder = new VisionPortal.Builder();
         
-        // Set the camera
-        builder.setCamera(hardwareMap.get(WebcamName.class, "Webcam 1"));
+        // Set the camera - Change this to match your hardware config name
+        builder.setCamera(hardwareMap.get(WebcamName.class, "Webcam 1")); // Update this name if different
         
-        // Choose a camera resolution
-        builder.setCameraResolution(new Size(640, 480));
+        // Arducam OV9281 optimal resolution settings
+        // The OV9281 supports multiple resolutions, choose based on your needs:
+        builder.setCameraResolution(new Size(1280, 720)); // Best for AprilTag detection (recommended)
+        // builder.setCameraResolution(new Size(640, 480));  // Good balance of speed and accuracy
+        // builder.setCameraResolution(new Size(320, 240));  // Maximum FPS for real-time tracking
         
-        // Enable live view for better debugging (you can disable later)
-        builder.enableLiveView(true);
+        // Arducam OV9281 specific settings for optimal performance
+        builder.enableLiveView(true); // Enable for debugging, disable for competition performance
+        builder.setAutoStopLiveView(false); // Keep live view running
         
-        // Set and enable the processor
+        // Initialize ball detection processor
+        ballDetector = new BallDetectionProcessor();
+        
+        // Set and enable both processors
         builder.addProcessor(aprilTag);
+        builder.addProcessor(ballDetector);
         
         // Build the Vision Portal
         visionPortal = builder.build();
         
+        // Configure Arducam OV9281 camera settings for optimal AprilTag detection
+        configureArducamOV9281();
+        
+        telemetry.addData("Camera", "Arducam OV9281 Global Shutter");
+        telemetry.addData("Resolution", "1280x720 (optimal for AprilTags)");
         telemetry.addData("AprilTag Vision", "Initialized with TAG_36h11 family");
         telemetry.addData("Tag Library", "NONE - Will detect ANY TAG_36h11 AprilTag");
         telemetry.addData("Target Tag", "Looking for ID %d", TARGET_TAG_ID);
-        telemetry.addData("Camera Resolution", "640x480");
-        telemetry.addData("✅ Advantage", "Can detect tags outside CenterStage library");
+        telemetry.addData("✅ Global Shutter", "No motion blur - perfect for moving robot");
+    }
         telemetry.update();
+    }
+    
+    private void configureArducamOV9281() {
+        // Wait for camera to be ready
+        while (visionPortal.getCameraState() != VisionPortal.CameraState.STREAMING) {
+            telemetry.addData("Camera", "Waiting for Arducam OV9281 to start streaming...");
+            telemetry.update();
+            sleep(50);
+        }
+        
+        // Get camera control for Arducam OV9281 specific settings
+        ExposureControl exposureControl = visionPortal.getCameraControl(ExposureControl.class);
+        GainControl gainControl = visionPortal.getCameraControl(GainControl.class);
+        FocusControl focusControl = visionPortal.getCameraControl(FocusControl.class);
+        WhiteBalanceControl whiteBalanceControl = visionPortal.getCameraControl(WhiteBalanceControl.class);
+        
+        // Configure optimal settings for AprilTag detection with OV9281
+        if (exposureControl != null) {
+            // Set manual exposure for consistent detection
+            exposureControl.setMode(ExposureControl.Mode.Manual);
+            // OV9281 optimal exposure: 10-20ms for indoor lighting, 5-10ms for bright conditions
+            exposureControl.setExposure(15, TimeUnit.MILLISECONDS); // Adjust based on your lighting
+            telemetry.addData("Exposure", "Set to 15ms (manual mode)");
+        }
+        
+        if (gainControl != null) {
+            // Set moderate gain for good image quality without noise
+            gainControl.setGain(50); // Range typically 0-255, adjust as needed
+            telemetry.addData("Gain", "Set to 50");
+        }
+        
+        if (focusControl != null) {
+            // Set focus to infinity for AprilTag detection
+            focusControl.setMode(FocusControl.Mode.Fixed);
+            focusControl.setFocusLength(240.0); // Focus at distance for tags
+            telemetry.addData("Focus", "Set to fixed 240.0");
+        }
+        
+        if (whiteBalanceControl != null) {
+            // Set white balance for consistent colors
+            whiteBalanceControl.setMode(WhiteBalanceControl.Mode.Manual);
+            whiteBalanceControl.setWhiteBalanceTemperature(4000); // Indoor lighting (~4000K)
+            telemetry.addData("White Balance", "Set to 4000K (manual)");
+        }
+        
+        telemetry.addData("✅ Arducam OV9281", "Configured for optimal AprilTag detection");
+        telemetry.addData("Camera State", visionPortal.getCameraState());
+        telemetry.update();
+        
+        // Brief pause to let settings take effect
+        sleep(500);
     }
     
     private void handleAprilTagAlignment() {
@@ -406,6 +509,7 @@ public class TeleOpDECODE extends LinearOpMode {
     private void handleControllerInputs() {
         // Get current button states for gamepad1 (driver)
         boolean currentA = gamepad1.a;
+        boolean currentX = gamepad1.x; // Add X button for ball alignment
         
         // Get current button states for gamepad2 (operator)
         boolean currentX2 = gamepad2.x;
@@ -446,6 +550,11 @@ public class TeleOpDECODE extends LinearOpMode {
             toggleIntakeAndConveryor();
         }
         
+        // Handle X button on gamepad1 - Toggle Ball Alignment using Arducam
+        if (currentX && !previousX) {
+            toggleBallAlignment();
+        }
+        
         // Handle A button on gamepad2 - Toggle AprilTag Auto-Alignment
         if (currentA2 && !previousA2) {
             toggleAutoAlignment();
@@ -463,6 +572,7 @@ public class TeleOpDECODE extends LinearOpMode {
         
         // Update previous button states
         previousA = currentA;
+        previousX = currentX; // Add X button state tracking
         previousX2 = currentX2;
         previousY2 = currentY2;
         previousB2 = currentB2;
@@ -471,7 +581,7 @@ public class TeleOpDECODE extends LinearOpMode {
     
     private void handleMecanumDrive() {
         // Get joystick inputs
-        double drive = gamepad1.left_stick_y;   // Forward/backward (swapped: positive for forward)
+        double drive = -gamepad1.left_stick_y;  // Forward/backward (reversed: negative for forward - robot facing swapped)
         double strafe = -gamepad1.left_stick_x; // Left/right strafe (swapped: negative for right strafe)
         double turn = -gamepad1.right_stick_x;  // Rotation (swapped: negative for right turn)
         
@@ -625,7 +735,7 @@ public class TeleOpDECODE extends LinearOpMode {
         indexorRecoveryAttempts++;
         indexorIsRecovering = true;
         
-        // Step 1: Back out 20 degrees (reverse)
+        // Step 1: Back out 30 degrees (reverse)
         int currentPosition = indexor.getCurrentPosition();
         int reverseTarget = currentPosition - INDEXOR_REVERSE_TICKS;
         
@@ -639,7 +749,7 @@ public class TeleOpDECODE extends LinearOpMode {
         lastIndexorPosition = currentPosition;
         indexorTargetPosition = reverseTarget;
         
-        telemetry.addData("🔄 RECOVERY ATTEMPT", "%d/2 - Backing out 20°", indexorRecoveryAttempts);
+        telemetry.addData("🔄 RECOVERY ATTEMPT", "%d/2 - Backing out 30°", indexorRecoveryAttempts);
         telemetry.addData("Recovery", "Moving from %d to %d", currentPosition, reverseTarget);
     }
     
@@ -675,15 +785,24 @@ public class TeleOpDECODE extends LinearOpMode {
             intakeAutoStopped = false; // Reset auto-stop flag when manually stopped
             telemetry.addData("Intake & Converyor", "STOPPED");
         } else {
-            // Start both motors
-            intake.setPower(INTAKE_POWER);
-            conveyor.setPower(CONVEYOR_POWER);
-            intakeAutoStopped = false; // Reset auto-stop flag when manually started
-            // Reset ball management system when intake starts
-            ballDetectionTimer.reset();
-            allPositionsFilled = false;
-            telemetry.addData("Intake & Converyor", "RUNNING");
-            telemetry.addData("🤖 Auto-Ball System", "Monitoring for balls...");
+            // Safety check: Don't start intake if trigger is in fire position
+            double currentTriggerPosition = triggerServo.getPosition();
+            boolean triggerInFirePosition = Math.abs(currentTriggerPosition - TRIGGER_FIRE) < 0.05;
+            
+            if (triggerInFirePosition) {
+                telemetry.addData("🚫 SAFETY BLOCK", "Cannot start intake - Trigger in FIRE position!");
+                telemetry.addData("Action Required", "Move trigger to retracted position first (Press B)");
+            } else {
+                // Start both motors
+                intake.setPower(INTAKE_POWER);
+                conveyor.setPower(CONVEYOR_POWER);
+                intakeAutoStopped = false; // Reset auto-stop flag when manually started
+                // Reset ball management system when intake starts
+                ballDetectionTimer.reset();
+                allPositionsFilled = false;
+                telemetry.addData("Intake & Converyor", "RUNNING");
+                telemetry.addData("🤖 Auto-Ball System", "Monitoring for balls...");
+            }
         }
         telemetry.update();
     }
@@ -725,20 +844,32 @@ public class TeleOpDECODE extends LinearOpMode {
             telemetry.addData("Trigger Servo", "ALIGNED MODE - AprilTag detected");
         }
         
-        // Check current position and toggle between home (120°) and fire (60°)
+        // Check current position and toggle between fire (60° - home) and retracted (137°)
         double currentPosition = triggerServo.getPosition();
         
         if (Math.abs(currentPosition - TRIGGER_FIRE) < 0.1) {
-            // Currently at home position (120 degrees), move to fire position (60 degrees)
+            // Currently at fire position (60 degrees - home), move to retracted position (137 degrees)
             triggerServo.setPosition(TRIGGER_HOME);
-            telemetry.addData("Trigger Servo", "FIRING! Moving to 60 degrees");
+            telemetry.addData("Trigger Servo", "RETRACTING! Moving to 137 degrees");
             if (isAlignedToTag) {
-                telemetry.addData("AprilTag", "Aligned and fired!");
+                telemetry.addData("AprilTag", "Aligned - trigger retracted!");
             }
         } else {
-            // Currently at fire position (60 degrees), return to home position (120 degrees)
+            // Currently at retracted position (120 degrees), return to fire position (60 degrees - home)
             triggerServo.setPosition(TRIGGER_FIRE);
-            telemetry.addData("Trigger Servo", "Returning to home position (120 degrees)");
+            
+            // Stop intake when trigger moves to fire position for safety
+            boolean intakeWasRunning = Math.abs(intake.getPower()) > 0.1;
+            if (intakeWasRunning) {
+                intake.setPower(0);
+                // Also stop conveyor unless indexor is running
+                if (!indexorIsRunning) {
+                    conveyor.setPower(0);
+                }
+                telemetry.addData("🚫 SAFETY", "Intake STOPPED - Trigger moved to FIRE position");
+            }
+            
+            telemetry.addData("Trigger Servo", "Returning to fire position (45 degrees)");
         }
         telemetry.update();
     }
@@ -940,16 +1071,32 @@ public class TeleOpDECODE extends LinearOpMode {
             manualTriggerControl = false;
         }
         
+        // Check current trigger position
+        double currentTriggerPosition = triggerServo.getPosition();
+        boolean triggerInFirePosition = Math.abs(currentTriggerPosition - TRIGGER_FIRE) < 0.05;
+        
+        // Stop intake if trigger is in fire position
+        if (triggerInFirePosition) {
+            boolean intakeWasRunning = Math.abs(intake.getPower()) > 0.1;
+            if (intakeWasRunning) {
+                intake.setPower(0);
+                // Also stop conveyor unless indexor is running
+                if (!indexorIsRunning) {
+                    conveyor.setPower(0);
+                }
+                telemetry.addData("🚫 AUTO-SAFETY", "Intake STOPPED - Trigger in FIRE position");
+            }
+        }
+        
         // Only auto-manage trigger if not under manual control
         if (!manualTriggerControl) {
             boolean intakeRunning = Math.abs(intake.getPower()) > 0.1;
             
             if (intakeRunning) {
-                // Keep trigger in home position when intake is running
-                double currentPosition = triggerServo.getPosition();
-                if (Math.abs(currentPosition - TRIGGER_FIRE) > 0.05) {
+                // Keep trigger in fire position when intake is running (fire is now home position)
+                if (Math.abs(currentTriggerPosition - TRIGGER_FIRE) > 0.05) {
                     triggerServo.setPosition(TRIGGER_FIRE);
-                    telemetry.addData("🤖 AUTO-TRIGGER", "Set to HOME position (intake running)");
+                    telemetry.addData("🤖 AUTO-TRIGGER", "Set to FIRE position (intake running)");
                 }
             }
             // Note: We don't auto-move to fire position to avoid accidental firing
@@ -1304,6 +1451,226 @@ public class TeleOpDECODE extends LinearOpMode {
                 }
             }
             telemetry.addData("📋 All Tag IDs", idList.toString());
+        }
+    }
+    
+    private void toggleBallAlignment() {
+        if (ballAlignmentActive) {
+            // Stop ball alignment
+            ballAlignmentActive = false;
+            // Stop all drive motors
+            leftFront.setPower(0);
+            rightFront.setPower(0);
+            leftBack.setPower(0);
+            rightBack.setPower(0);
+            telemetry.addData("⚽ Ball Alignment", "STOPPED by driver");
+        } else {
+            // Start ball alignment
+            ballAlignmentActive = true;
+            ballAlignmentTimer.reset();
+            telemetry.addData("⚽ Ball Alignment", "STARTED - Looking for nearest ball");
+            telemetry.addData("💡 Tip", "Point camera toward balls");
+        }
+        telemetry.update();
+    }
+    
+    private void handleBallAlignment() {
+        // Check if ball alignment should timeout
+        if (ballAlignmentActive && ballAlignmentTimer.seconds() > BALL_ALIGNMENT_TIMEOUT) {
+            ballAlignmentActive = false;
+            leftFront.setPower(0);
+            rightFront.setPower(0);
+            leftBack.setPower(0);
+            rightBack.setPower(0);
+            telemetry.addData("⚽ Ball Alignment", "TIMEOUT - Manual control resumed");
+            return;
+        }
+        
+        // Only run ball alignment if active
+        if (!ballAlignmentActive) {
+            return;
+        }
+        
+        // Get ball detection results
+        if (ballDetector != null) {
+            nearestBallCenter = ballDetector.getBallCenter();
+            ballDetected = ballDetector.isBallDetected();
+            
+            if (ballDetected && nearestBallCenter != null) {
+                // Calculate error from center
+                double xError = nearestBallCenter.x - CAMERA_CENTER_X;
+                double yError = nearestBallCenter.y - CAMERA_CENTER_Y;
+                
+                // Check if aligned
+                boolean xAligned = Math.abs(xError) < BALL_PIXEL_TOLERANCE;
+                boolean yAligned = Math.abs(yError) < BALL_PIXEL_TOLERANCE;
+                
+                if (xAligned && yAligned) {
+                    // Perfectly aligned!
+                    leftFront.setPower(0);
+                    rightFront.setPower(0);
+                    leftBack.setPower(0);
+                    rightBack.setPower(0);
+                    telemetry.addData("⚽ Ball Alignment", "🎯 PERFECT ALIGNMENT!");
+                    telemetry.addData("Status", "Ball centered - ready for intake");
+                } else {
+                    // Calculate alignment movements
+                    double turnPower = xError * BALL_PIXEL_POWER; // Turn based on X error
+                    double drivePower = yError * BALL_PIXEL_POWER; // Drive based on Y error
+                    
+                    // Limit powers
+                    turnPower = Math.max(-BALL_ALIGNMENT_TURN_POWER, 
+                               Math.min(BALL_ALIGNMENT_TURN_POWER, turnPower));
+                    drivePower = Math.max(-BALL_ALIGNMENT_DRIVE_POWER, 
+                                Math.min(BALL_ALIGNMENT_DRIVE_POWER, drivePower));
+                    
+                    // Apply mecanum drive for alignment
+                    double frontLeftPower = drivePower + turnPower;
+                    double frontRightPower = drivePower - turnPower;
+                    double backLeftPower = drivePower + turnPower;
+                    double backRightPower = drivePower - turnPower;
+                    
+                    leftFront.setPower(frontLeftPower);
+                    rightFront.setPower(frontRightPower);
+                    leftBack.setPower(backLeftPower);
+                    rightBack.setPower(backRightPower);
+                    
+                    telemetry.addData("⚽ Ball Alignment", "🔄 ALIGNING TO BALL");
+                    telemetry.addData("Ball Position", "X: %.0f, Y: %.0f", nearestBallCenter.x, nearestBallCenter.y);
+                    telemetry.addData("Error", "X: %.0f, Y: %.0f pixels", xError, yError);
+                    telemetry.addData("Powers", "Turn: %.2f, Drive: %.2f", turnPower, drivePower);
+                }
+            } else {
+                // No ball detected
+                leftFront.setPower(0);
+                rightFront.setPower(0);
+                leftBack.setPower(0);
+                rightBack.setPower(0);
+                telemetry.addData("⚽ Ball Alignment", "🔍 SEARCHING FOR BALL...");
+                telemetry.addData("Status", "No balls detected - adjust camera angle");
+            }
+        }
+    }
+    
+    private void updateBallDetectionTelemetry() {
+        if (ballDetector != null) {
+            boolean detected = ballDetector.isBallDetected();
+            Point center = ballDetector.getBallCenter();
+            
+            telemetry.addData("👁️ Ball Detection", detected ? "BALL FOUND" : "No balls");
+            if (detected && center != null) {
+                telemetry.addData("📍 Ball Position", "X: %.0f, Y: %.0f", center.x, center.y);
+                double distanceFromCenter = Math.sqrt(
+                    Math.pow(center.x - CAMERA_CENTER_X, 2) + 
+                    Math.pow(center.y - CAMERA_CENTER_Y, 2)
+                );
+                telemetry.addData("📏 Distance from Center", "%.0f pixels", distanceFromCenter);
+            }
+            
+            if (ballAlignmentActive) {
+                telemetry.addData("⚽ Ball Alignment", "ACTIVE (%.1fs)", ballAlignmentTimer.seconds());
+                telemetry.addData("💡 Control", "Press X again to stop");
+            } else {
+                telemetry.addData("⚽ Ball Alignment", "Press X to align to nearest ball");
+            }
+        }
+    }
+    
+    // Ball Detection Processor for Arducam OV9281
+    private class BallDetectionProcessor implements VisionProcessor {
+        private Mat hsvMat = new Mat();
+        private Mat maskMat = new Mat();
+        private Mat hierarchyMat = new Mat();
+        private Point detectedBallCenter = null;
+        private boolean ballFound = false;
+        
+        // HSV color ranges for ball detection (adjust these for your balls)
+        // Green ball HSV ranges
+        private Scalar greenLowerBound = new Scalar(45, 50, 50);   // Lower HSV for green
+        private Scalar greenUpperBound = new Scalar(75, 255, 255); // Upper HSV for green
+        
+        // Purple ball HSV ranges  
+        private Scalar purpleLowerBound = new Scalar(120, 50, 50);   // Lower HSV for purple
+        private Scalar purpleUpperBound = new Scalar(160, 255, 255); // Upper HSV for purple
+        
+        @Override
+        public void init(int width, int height, CameraCalibration calibration) {
+            // Initialize processor
+        }
+        
+        @Override
+        public Object processFrame(Mat frame, long captureTimeNanos) {
+            // Convert BGR to HSV for better color detection
+            Imgproc.cvtColor(frame, hsvMat, Imgproc.COLOR_RGB2HSV);
+            
+            // Create masks for green and purple balls
+            Mat greenMask = new Mat();
+            Mat purpleMask = new Mat();
+            Mat combinedMask = new Mat();
+            
+            Core.inRange(hsvMat, greenLowerBound, greenUpperBound, greenMask);
+            Core.inRange(hsvMat, purpleLowerBound, purpleUpperBound, purpleMask);
+            Core.add(greenMask, purpleMask, combinedMask);
+            
+            // Find contours
+            List<org.opencv.core.MatOfPoint> contours = new ArrayList<>();
+            Imgproc.findContours(combinedMask, contours, hierarchyMat, Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE);
+            
+            // Find the largest contour (closest/biggest ball)
+            double maxArea = 0;
+            Point ballCenter = null;
+            
+            for (org.opencv.core.MatOfPoint contour : contours) {
+                double area = Imgproc.contourArea(contour);
+                if (area > maxArea && area > 500) { // Minimum area threshold
+                    maxArea = area;
+                    
+                    // Calculate centroid of the contour
+                    Moments moments = Imgproc.moments(contour);
+                    if (moments.m00 != 0) {
+                        ballCenter = new Point(moments.m10 / moments.m00, moments.m01 / moments.m00);
+                    }
+                }
+            }
+            
+            // Update detection results
+            detectedBallCenter = ballCenter;
+            ballFound = (ballCenter != null);
+            
+            // Draw detection on frame for debugging
+            if (ballFound && ballCenter != null) {
+                Imgproc.circle(frame, ballCenter, 10, new Scalar(0, 255, 0), 3);
+                Imgproc.putText(frame, "BALL", 
+                    new Point(ballCenter.x - 20, ballCenter.y - 20),
+                    Imgproc.FONT_HERSHEY_SIMPLEX, 0.7, new Scalar(0, 255, 0), 2);
+            }
+            
+            // Draw center crosshairs
+            Imgproc.line(frame, new Point(CAMERA_CENTER_X - 20, CAMERA_CENTER_Y), 
+                        new Point(CAMERA_CENTER_X + 20, CAMERA_CENTER_Y), new Scalar(255, 0, 0), 2);
+            Imgproc.line(frame, new Point(CAMERA_CENTER_X, CAMERA_CENTER_Y - 20), 
+                        new Point(CAMERA_CENTER_X, CAMERA_CENTER_Y + 20), new Scalar(255, 0, 0), 2);
+            
+            // Clean up
+            greenMask.release();
+            purpleMask.release();
+            combinedMask.release();
+            
+            return null;
+        }
+        
+        @Override
+        public void onDrawFrame(Canvas canvas, int onscreenWidth, int onscreenHeight, float scaleBmpPxToCanvasPx, float scaleCanvasDensity, Object userContext) {
+            // Optional: Draw on canvas
+        }
+        
+        // Public methods to get detection results
+        public Point getBallCenter() {
+            return detectedBallCenter;
+        }
+        
+        public boolean isBallDetected() {
+            return ballFound;
         }
     }
 }
