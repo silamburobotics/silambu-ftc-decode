@@ -171,7 +171,7 @@ public class TeleOpDECODE extends LinearOpMode {
     public static final double AUTO_INDEXOR_POWER = 0.1;      // Power for automatic indexor movement
     
     // Manual indexor joystick control settings
-    public static final double MANUAL_INDEXOR_POWER = 0.1;    // 10% power for manual joystick control
+    public static final double MANUAL_INDEXOR_POWER = 0.3;    // 30% power for manual joystick control
     public static final double JOYSTICK_DEADZONE = 0.1;       // Deadzone to prevent drift
     
     // Trigger servo automatic management settings
@@ -627,7 +627,7 @@ public class TeleOpDECODE extends LinearOpMode {
             toggleTriggerServo();
         }
         
-        // Handle manual indexor control with gamepad2 right joystick
+        // Handle manual indexor and conveyor control with gamepad2 right joystick
         handleManualIndexorControl();
         
         // Update previous button states
@@ -898,7 +898,7 @@ public class TeleOpDECODE extends LinearOpMode {
     }
     
     private void handleManualIndexorControl() {
-        // Get gamepad2 right joystick Y value for manual indexor control
+        // Get gamepad2 right joystick Y value for manual indexor and conveyor control
         double joystickY = -gamepad2.right_stick_y; // Negative for intuitive control (up = forward)
         
         // Apply deadzone
@@ -923,9 +923,12 @@ public class TeleOpDECODE extends LinearOpMode {
                 manualIndexorControl = true;
             }
             
-            // Set manual indexor power
+            // Set manual indexor power and start conveyor
             double indexorPower = joystickY * MANUAL_INDEXOR_POWER;
             indexor.setPower(indexorPower);
+            
+            // Start conveyor when joystick is active
+            conveyor.setPower(CONVEYOR_POWER);
             
             // Check if indexor is moving in reverse (negative power)
             if (indexorPower < -0.05) { // Small threshold to avoid noise
@@ -937,13 +940,16 @@ public class TeleOpDECODE extends LinearOpMode {
             }
             
             telemetry.addData("Indexor Manual", "Power: %.2f (%.0f%%)", indexorPower, indexorPower * 100);
+            telemetry.addData("Conveyor Manual", "RUNNING at %.2f power", CONVEYOR_POWER);
             telemetry.addData("Control Mode", "MANUAL - Right Joystick");
             
         } else if (manualIndexorControl) {
-            // Joystick released - stop indexor and return to automatic mode
+            // Joystick released - stop indexor, conveyor and return to automatic mode
             indexor.setPower(0);
+            conveyor.setPower(0);
             manualIndexorControl = false;
             telemetry.addData("Indexor Manual", "STOPPED - Released");
+            telemetry.addData("Conveyor Manual", "STOPPED - Released");
             telemetry.addData("Control Mode", "AUTO - Buttons Active");
         }
     }
