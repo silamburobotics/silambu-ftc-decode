@@ -144,7 +144,7 @@ public class TeleOpDECODE extends LinearOpMode {
     public static final double SHOOTER_SERVO_POWER = 1.0; // Positive for forward direction
     
     // Trigger servo position settings (0.0 = 0 degrees, 1.0 = 180 degrees)
-    public static final double TRIGGER_FIRE = 0.25;     // 45 degrees (45/180 = 0.25) - FIRE POSITION (compact)
+    public static final double TRIGGER_FIRE = 0.15;     // 27 degrees (27/180 = 0.15) - FIRE POSITION (compact)
     public static final double TRIGGER_HOME = 0.76;     // 137 degrees (137/180 = 0.76) - HOME/SAFE POSITION (retracted)
     
     // AprilTag alignment settings
@@ -552,9 +552,20 @@ public class TeleOpDECODE extends LinearOpMode {
             }
         }
         
-        // If we get here, the target tag wasn't found
+        // If we get here, the target tag wasn't found - default to close range settings
+        // Default to close range shooter speed when AprilTag not detected
+        SHOOTER_TARGET_VELOCITY = 1200; // Close range velocity
+        
+        // Update shooter velocity if shooter is running
+        if (shooterIntentionallyRunning && shooter != null) {
+            shooter.setVelocity(SHOOTER_TARGET_VELOCITY);
+        }
+        
         telemetry.addData("🔍 AprilTag", "Searching for Target ID %d...", TARGET_TAG_ID);
         telemetry.addData("📋 Tags Detected", "%d total", currentDetections.size());
+        telemetry.addData("🎯 Default Mode", "🔵 CLOSE RANGE - Using 1200 ticks/sec");
+        telemetry.addData("🚀 Shooter Speed", "%.0f ticks/sec (%.0f RPM)", 
+            SHOOTER_TARGET_VELOCITY, (SHOOTER_TARGET_VELOCITY * 60) / SHOOTER_TICKS_PER_REVOLUTION);
         
         // List any tags we can see for debugging
         for (AprilTagDetection detection : currentDetections) {
