@@ -37,11 +37,9 @@ import org.firstinspires.ftc.robotcore.external.function.Continuation;
 import org.firstinspires.ftc.robotcore.external.stream.CameraStreamSource;
 import org.firstinspires.ftc.vision.VisionProcessor;
 import org.firstinspires.ftc.robotcore.external.ClassFactory;
-import org.firstinspires.ftc.robotcore.external.hardware.camera.CameraCalibration;
 import android.graphics.Canvas;
 import java.util.ArrayList;
 
-import android.util.Size;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 @Config
@@ -196,8 +194,24 @@ public class TeleOpDECODE extends LinearOpMode {
     public static final double BEARING_ALIGNMENT_TOLERANCE = 5.0; // degrees - target bearing tolerance
     public static final double BEARING_ALIGNMENT_POWER = 0.02;   // Power per degree of bearing error
     
+    // AprilTag distance-based settings and thresholds
+    public static final double OPTIMAL_SHOOTING_DISTANCE = 18.0;  // inches - optimal distance for shooting
+    public static final double MIN_SHOOTING_DISTANCE = 8.0;       // inches - minimum safe shooting distance
+    public static final double MAX_SHOOTING_DISTANCE = 36.0;      // inches - maximum effective shooting distance
+    public static final double DISTANCE_TOLERANCE = 3.0;          // inches - tolerance for "at optimal distance"
+    public static final double DISTANCE_APPROACH_POWER = 0.3;     // Power for distance-based approach movements
+    
     // Shooter velocity control (ticks per second)
     public static double SHOOTER_TARGET_VELOCITY = 1600; // Range: 1200-1800 ticks/sec
+    
+    // Motor encoder specifications for RPM calculations
+    // Common goBILDA motor encoder resolutions (ticks per revolution):
+    // - 312 RPM motor: ~1425.2 ticks/rev (28 ticks/rev * 50.9:1 gear ratio)  
+    // - 435 RPM motor: ~1020.0 ticks/rev (28 ticks/rev * 36.4:1 gear ratio)
+    // - 1150 RPM motor: ~384.5 ticks/rev (28 ticks/rev * 13.7:1 gear ratio)
+    // - 1620 RPM motor: ~312.0 ticks/rev (28 ticks/rev * 11.1:1 gear ratio)
+    // Assuming 435 RPM motor for shooter (common for FTC shooters)
+    public static final double SHOOTER_TICKS_PER_REVOLUTION = 1020.0; // goBILDA 435 RPM motor
     
     // AprilTag alignment settings
     public static final int TARGET_TAG_ID = 20; // Blue AprilTag ID
@@ -362,7 +376,7 @@ public class TeleOpDECODE extends LinearOpMode {
         
         // Arducam OV9281 optimal resolution settings
         // The OV9281 supports multiple resolutions, choose based on your needs:
-        builder.setCameraResolution(new Size(1280, 720)); // Best for AprilTag detection (recommended)
+        builder.setCameraResolution(new android.util.Size(1280, 720)); // Best for AprilTag detection (recommended)
         // builder.setCameraResolution(new Size(640, 480));  // Good balance of speed and accuracy
         // builder.setCameraResolution(new Size(320, 240));  // Maximum FPS for real-time tracking
         
@@ -370,12 +384,11 @@ public class TeleOpDECODE extends LinearOpMode {
         builder.enableLiveView(true); // Enable for debugging, disable for competition performance
         builder.setAutoStopLiveView(false); // Keep live view running
         
-        // Initialize ball detection processor
+        // Initialize ball detection processor (for standalone use)
         ballDetector = new BallDetectionProcessor();
         
-        // Set and enable both processors
+        // Set AprilTag processor
         builder.addProcessor(aprilTag);
-        builder.addProcessor(ballDetector);
         
         // Build the Vision Portal
         visionPortal = builder.build();
@@ -389,7 +402,6 @@ public class TeleOpDECODE extends LinearOpMode {
         telemetry.addData("Tag Library", "NONE - Will detect ANY TAG_36h11 AprilTag");
         telemetry.addData("Target Tag", "Looking for ID %d", TARGET_TAG_ID);
         telemetry.addData("✅ Global Shutter", "No motion blur - perfect for moving robot");
-    }
         telemetry.update();
     }
     
@@ -431,9 +443,12 @@ public class TeleOpDECODE extends LinearOpMode {
         
         if (whiteBalanceControl != null) {
             // Set white balance for consistent colors
-            whiteBalanceControl.setMode(WhiteBalanceControl.Mode.Manual);
-            whiteBalanceControl.setWhiteBalanceTemperature(4000); // Indoor lighting (~4000K)
-            telemetry.addData("White Balance", "Set to 4000K (manual)");
+            try {
+                whiteBalanceControl.setWhiteBalanceTemperature(4000); // Indoor lighting (~4000K)
+                telemetry.addData("White Balance", "Set to 4000K");
+            } catch (Exception e) {
+                telemetry.addData("White Balance", "Auto mode (manual not supported)");
+            }
         }
         
         telemetry.addData("✅ Arducam OV9281", "Configured for optimal AprilTag detection");
@@ -456,10 +471,13 @@ public class TeleOpDECODE extends LinearOpMode {
         // Look for the target tag
         for (AprilTagDetection detection : currentDetections) {
             if (detection != null && detection.id == TARGET_TAG_ID) {
-                // Found the target tag! (with or without metadata)
+                // Get distance and pose information
                 double xOffset = detection.ftcPose.x;
                 double yOffset = detection.ftcPose.y;
                 double headingError = detection.ftcPose.yaw;
+                double distance = detection.ftcPose.range; // Distance in inches
+                double bearing = detection.ftcPose.bearing; // Bearing angle to tag
+                double elevation = detection.ftcPose.elevation; // Elevation angle to tag
                 
                 // Check if we're aligned within tolerance
                 boolean xAligned = Math.abs(xOffset) < ALIGNMENT_POSITION_TOLERANCE;
@@ -468,11 +486,41 @@ public class TeleOpDECODE extends LinearOpMode {
                 
                 isAlignedToTag = xAligned && yAligned && headingAligned;
                 
-                // Provide alignment feedback
+                // Determine distance category for better feedback
+                String distanceCategory;
+                String distanceAdvice;
+                if (distance < 100.0) {
+                    distanceCategory = "� CLOSE RANGE";
+                    distanceAdvice = "Within optimal range";
+                } else {
+                    distanceCategory = "� LONG RANGE";
+                    distanceAdvice = "Beyond 100 inches";
+                }
+                
+                // Adjust shooter velocity based on distance
+                if (distance < 100.0) {
+                    // Close range - use lower velocity
+                    SHOOTER_TARGET_VELOCITY = 1200;
+                } else {
+                    // Long range - use higher velocity  
+                    SHOOTER_TARGET_VELOCITY = 1600;
+                }
+                
+                // Update shooter velocity if shooter is running
+                if (shooterIntentionallyRunning && shooter != null) {
+                    shooter.setVelocity(SHOOTER_TARGET_VELOCITY);
+                }
+                
+                // Provide comprehensive feedback
                 telemetry.addData("🎯 AprilTag", "FOUND Target ID %d", TARGET_TAG_ID);
                 telemetry.addData("📍 Position", "X: %.1f, Y: %.1f inches", xOffset, yOffset);
                 telemetry.addData("🧭 Heading Error", "%.1f degrees", headingError);
-                telemetry.addData("📏 Range", "%.1f inches", detection.ftcPose.range);
+                telemetry.addData("📏 Distance", "%.1f inches (%s)", distance, distanceCategory);
+                telemetry.addData("🚀 Shooter Speed", "%.0f ticks/sec (%.0f RPM)", 
+                    SHOOTER_TARGET_VELOCITY, (SHOOTER_TARGET_VELOCITY * 60) / SHOOTER_TICKS_PER_REVOLUTION);
+                telemetry.addData("🎯 Bearing", "%.1f degrees", bearing);
+                telemetry.addData("📐 Elevation", "%.1f degrees", elevation);
+                telemetry.addData("💡 Advice", distanceAdvice);
                 telemetry.addData("✅ Alignment Status", 
                     "X: %s, Y: %s, Heading: %s", 
                     xAligned ? "✓" : "✗", 
@@ -1223,21 +1271,27 @@ public class TeleOpDECODE extends LinearOpMode {
                     telemetry.addData("🔧 Min Turn Power", "%.3f applied", turnPower);
                 }
                 
-                // Check if aligned based on bearing angle
+                // Check if aligned based on bearing angle AND distance
                 boolean bearingAligned = Math.abs(bearingAngle) < BEARING_ALIGNMENT_TOLERANCE;
+                double distanceError = range - OPTIMAL_SHOOTING_DISTANCE;
+                boolean distanceAligned = Math.abs(distanceError) < DISTANCE_TOLERANCE;
+                boolean fullyAligned = bearingAligned && distanceAligned;
                 
-                telemetry.addData("📊 Bearing Status", "Aligned: %s (%.1f°/%.1f°)", 
-                    bearingAligned ? "✅" : "❌", Math.abs(bearingAngle), BEARING_ALIGNMENT_TOLERANCE);
+                telemetry.addData("📊 Full Status", "Bearing: %s (%.1f°), Distance: %s (%.1f\")", 
+                    bearingAligned ? "✅" : "❌", Math.abs(bearingAngle),
+                    distanceAligned ? "✅" : "❌", Math.abs(distanceError));
                 
-                if (bearingAligned) {
-                    // Perfect bearing alignment achieved!
+                if (fullyAligned) {
+                    // Perfect alignment achieved - both bearing and distance!
                     autoAlignmentActive = false;
                     leftFront.setPower(0);
                     rightFront.setPower(0);
                     leftBack.setPower(0);
                     rightBack.setPower(0);
-                    telemetry.addData("🎯 Auto-Alignment", "✅ BEARING ALIGNED! Angle: %.1f° < %.1f°", 
-                        Math.abs(bearingAngle), BEARING_ALIGNMENT_TOLERANCE);
+                    telemetry.addData("🎯 Auto-Alignment", "✅ PERFECT ALIGNMENT!");
+                    telemetry.addData("🎯 Status", "Bearing: %.1f° | Distance: %.1f inches", 
+                        Math.abs(bearingAngle), range);
+                    telemetry.addData("🚀 READY", "Optimal position for shooting!");
                 } else {
                     // Apply alignment movements
                     double frontLeftPower = drivePower + strafePower + turnPower;
@@ -1288,6 +1342,11 @@ public class TeleOpDECODE extends LinearOpMode {
         telemetry.addData("Intake Power", "%.2f", intake.getPower());
         telemetry.addData("Shooter Velocity", "%.0f / %.0f ticks/sec", 
                          shooter.getVelocity(), SHOOTER_TARGET_VELOCITY);
+        
+        // Calculate and display RPM
+        double currentShooterRPM = (shooter.getVelocity() * 60) / SHOOTER_TICKS_PER_REVOLUTION;
+        double targetShooterRPM = (SHOOTER_TARGET_VELOCITY * 60) / SHOOTER_TICKS_PER_REVOLUTION;
+        telemetry.addData("Shooter RPM", "%.0f / %.0f RPM", currentShooterRPM, targetShooterRPM);
         telemetry.addData("Shooter Status", shooterIntentionallyRunning ? "RUNNING" : "STOPPED");
         telemetry.addData("Shooter Power", "%.2f", shooter.getPower());
         telemetry.addData("Converyor Power", "%.2f", conveyor.getPower());
@@ -1552,6 +1611,41 @@ public class TeleOpDECODE extends LinearOpMode {
         }
     }
     
+    private double getOptimalShooterVelocity(double distance) {
+        // Adjust shooter velocity based on distance to AprilTag
+        // Base velocity for optimal distance (18 inches)
+        double baseVelocity = SHOOTER_TARGET_VELOCITY;
+        
+        if (distance < MIN_SHOOTING_DISTANCE) {
+            // Very close - reduce power to avoid overshooting
+            return baseVelocity * 0.8;
+        } else if (distance <= OPTIMAL_SHOOTING_DISTANCE + DISTANCE_TOLERANCE) {
+            // In optimal range - use base velocity
+            return baseVelocity;
+        } else if (distance <= MAX_SHOOTING_DISTANCE) {
+            // Far but still effective - increase power
+            double powerMultiplier = 1.0 + ((distance - OPTIMAL_SHOOTING_DISTANCE) * 0.02);
+            return Math.min(baseVelocity * powerMultiplier, baseVelocity * 1.3); // Cap at 130%
+        } else {
+            // Too far - maximum power but warn user
+            return baseVelocity * 1.3;
+        }
+    }
+    
+    private String getDistanceAdvice(double distance) {
+        if (distance < MIN_SHOOTING_DISTANCE) {
+            return "⚠️ TOO CLOSE - Move back for safety";
+        } else if (distance <= OPTIMAL_SHOOTING_DISTANCE - DISTANCE_TOLERANCE) {
+            return "🔴 CLOSE - Good power range";
+        } else if (distance <= OPTIMAL_SHOOTING_DISTANCE + DISTANCE_TOLERANCE) {
+            return "🎯 PERFECT - Optimal shooting distance!";
+        } else if (distance <= MAX_SHOOTING_DISTANCE) {
+            return "🟡 FAR - Consider moving closer";
+        } else {
+            return "🔴 TOO FAR - Move much closer";
+        }
+    }
+    
     private void updateBallDetectionTelemetry() {
         if (ballDetector != null) {
             boolean detected = ballDetector.isBallDetected();
@@ -1577,7 +1671,7 @@ public class TeleOpDECODE extends LinearOpMode {
     }
     
     // Ball Detection Processor for Arducam OV9281
-    private class BallDetectionProcessor implements VisionProcessor {
+    private class BallDetectionProcessor {
         private Mat hsvMat = new Mat();
         private Mat maskMat = new Mat();
         private Mat hierarchyMat = new Mat();
@@ -1593,12 +1687,6 @@ public class TeleOpDECODE extends LinearOpMode {
         private Scalar purpleLowerBound = new Scalar(120, 50, 50);   // Lower HSV for purple
         private Scalar purpleUpperBound = new Scalar(160, 255, 255); // Upper HSV for purple
         
-        @Override
-        public void init(int width, int height, CameraCalibration calibration) {
-            // Initialize processor
-        }
-        
-        @Override
         public Object processFrame(Mat frame, long captureTimeNanos) {
             // Convert BGR to HSV for better color detection
             Imgproc.cvtColor(frame, hsvMat, Imgproc.COLOR_RGB2HSV);
@@ -1659,7 +1747,6 @@ public class TeleOpDECODE extends LinearOpMode {
             return null;
         }
         
-        @Override
         public void onDrawFrame(Canvas canvas, int onscreenWidth, int onscreenHeight, float scaleBmpPxToCanvasPx, float scaleCanvasDensity, Object userContext) {
             // Optional: Draw on canvas
         }
