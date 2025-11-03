@@ -347,7 +347,7 @@ public class TeleOpDECODESimple extends LinearOpMode {
             shooterServo.setPower(SHOOTER_SERVO_POWER);
             shooterIntentionallyRunning = true;
             
-            telemetry.addData("Shooter System", "RUNNING at %d ticks/sec", SHOOTER_TARGET_VELOCITY);
+            telemetry.addData("Shooter System", "RUNNING at %.0f ticks/sec", SHOOTER_TARGET_VELOCITY);
         }
         telemetry.update();
     }
@@ -484,7 +484,7 @@ public class TeleOpDECODESimple extends LinearOpMode {
         // Show shooter status
         if (shooterIntentionallyRunning) {
             telemetry.addData("Shooter", "RUNNING");
-            telemetry.addData("Target Velocity", "%d ticks/sec", SHOOTER_TARGET_VELOCITY);
+            telemetry.addData("Target Velocity", "%.0f ticks/sec", SHOOTER_TARGET_VELOCITY);
             telemetry.addData("Current Velocity", "%.0f ticks/sec", shooter.getVelocity());
             telemetry.addData("Shooter Servo", "%.2f", shooterServo.getPower());
             telemetry.addData("Speed Light", "%.2f", speedLight.getPosition());
