@@ -71,17 +71,17 @@ public class AutoOpDECODESimple extends LinearOpMode {
         telemetry.addData("=== AUTONOMOUS SEQUENCE ===", "");
         telemetry.addData("1.", "Start shooter + servo + conveyor");
         telemetry.addData("2.", "Wait for max velocity");
-        telemetry.addData("3.", "Fire shots 1 & 2 (position 1)");
-        telemetry.addData("4.", "Move indexor to position 2");
-        telemetry.addData("5.", "Fire shots 3 & 4 (position 2)");
-        telemetry.addData("6.", "Move indexor to position 3");
-        telemetry.addData("7.", "Fire shots 5 & 6 (position 3)");
+        telemetry.addData("3.", "Fire shot 1");
+        telemetry.addData("4.", "Move indexor + wait");
+        telemetry.addData("5.", "Fire shot 2");
+        telemetry.addData("6.", "Move indexor + wait");
+        telemetry.addData("7.", "Fire shot 3");
         telemetry.addData("8.", "Stop shooter system");
         telemetry.addData("", "");
         telemetry.addData("Shooter Speed", "%.0f ticks/sec", SHOOTER_TARGET_VELOCITY);
         telemetry.addData("Conveyor Power", "%.0f%%", CONVEYOR_POWER * 100);
-        telemetry.addData("Shots", "6 total shots (2 per position)");
-        telemetry.addData("Total Time", "~25-30 seconds");
+        telemetry.addData("Shots", "3 total shots");
+        telemetry.addData("Total Time", "~15-20 seconds");
         telemetry.update();
         
         waitForStart();
@@ -101,37 +101,37 @@ public class AutoOpDECODESimple extends LinearOpMode {
         // Step 2: Wait for shooter to reach maximum velocity
         waitForShooterSpeed();
         
-        // Step 3: Fire first two shots at initial position
+        // Step 3: Fire first shot
         fireShot(1);
-        sleep((long)(WAIT_BETWEEN_SHOTS * 1000));
-        fireShot(2);
         
         // Step 4: Wait, move indexor, wait
+        telemetry.addData("⏳ SEQUENCE", "Waiting between shots - velocity may drop");
+        telemetry.addData("⚡ Current Speed", "%.0f ticks/sec", shooter.getVelocity());
+        telemetry.update();
         sleep((long)(WAIT_BETWEEN_SHOTS * 1000));
         moveIndexorToNextPosition();
         sleep((long)(WAIT_BETWEEN_SHOTS * 1000));
         
-        // Step 5: Fire next two shots at second position
-        fireShot(3);
-        sleep((long)(WAIT_BETWEEN_SHOTS * 1000));
-        fireShot(4);
+        // Step 5: Fire second shot (with velocity check)
+        fireShot(2);
         
         // Step 6: Wait, move indexor, wait
+        telemetry.addData("⏳ SEQUENCE", "Waiting between shots - velocity may drop");
+        telemetry.addData("⚡ Current Speed", "%.0f ticks/sec", shooter.getVelocity());
+        telemetry.update();
         sleep((long)(WAIT_BETWEEN_SHOTS * 1000));
         moveIndexorToNextPosition();
         sleep((long)(WAIT_BETWEEN_SHOTS * 1000));
         
-        // Step 7: Fire final two shots at third position
-        fireShot(5);
-        sleep((long)(WAIT_BETWEEN_SHOTS * 1000));
-        fireShot(6);
+        // Step 7: Fire third shot (with velocity check)
+        fireShot(3);
         
         // Step 8: Wait and stop shooter
         sleep((long)(WAIT_BETWEEN_SHOTS * 1000));
         stopShooterSystem();
         
         telemetry.addData("✅ AUTONOMOUS", "Sequence completed!");
-        telemetry.addData("🎯 Shots Fired", "6 shots total");
+        telemetry.addData("🎯 Shots Fired", "3 shots");
         telemetry.addData("⏱️ Status", "Autonomous finished");
         telemetry.update();
     }
@@ -192,7 +192,13 @@ public class AutoOpDECODESimple extends LinearOpMode {
     }
     
     private void fireShot(int shotNumber) {
-        telemetry.addData("🎯 FIRING", "Shot %d of 3", shotNumber);
+        telemetry.addData("🎯 PREPARING", "Shot %d of 3", shotNumber);
+        telemetry.update();
+        
+        // Check and ensure shooter velocity before each shot
+        ensureShooterVelocity(shotNumber);
+        
+        telemetry.addData("🎯 FIRING", "Shot %d of 3 - Velocity Ready", shotNumber);
         telemetry.update();
         
         // Move trigger to fire position
@@ -207,6 +213,63 @@ public class AutoOpDECODESimple extends LinearOpMode {
         triggerServo.setPosition(TRIGGER_HOME);
         telemetry.addData("🏠 Trigger", "HOME position (%.0f°)", TRIGGER_HOME * 180);
         telemetry.addData("✅ Shot %d", "Fired successfully!", shotNumber);
+        telemetry.update();
+    }
+    
+    private void ensureShooterVelocity(int shotNumber) {
+        double currentVelocity = shooter.getVelocity();
+        double speedPercentage = currentVelocity / SHOOTER_TARGET_VELOCITY;
+        
+        telemetry.addData("🔍 VELOCITY CHECK", "Shot %d velocity status", shotNumber);
+        telemetry.addData("⚡ Current Speed", "%.0f ticks/sec (%.0f%%)", 
+            currentVelocity, speedPercentage * 100);
+        telemetry.addData("🎯 Target Speed", "%.0f ticks/sec", SHOOTER_TARGET_VELOCITY);
+        
+        // If velocity is good, no need to wait
+        if (speedPercentage >= SHOOTER_SPEED_THRESHOLD) {
+            telemetry.addData("✅ VELOCITY", "Already at optimal speed!");
+            telemetry.update();
+            return;
+        }
+        
+        // Velocity has dropped - wait for recovery
+        telemetry.addData("⚠️ VELOCITY", "Below threshold - waiting for recovery...");
+        telemetry.update();
+        
+        // Re-ensure shooter is running at target velocity
+        shooter.setVelocity(SHOOTER_TARGET_VELOCITY);
+        
+        ElapsedTime timeout = new ElapsedTime();
+        timeout.reset();
+        
+        while (opModeIsActive() && timeout.seconds() < SHOOTER_SPINUP_TIMEOUT) {
+            currentVelocity = shooter.getVelocity();
+            speedPercentage = currentVelocity / SHOOTER_TARGET_VELOCITY;
+            
+            // Update speed light
+            updateSpeedLight(currentVelocity);
+            
+            telemetry.addData("🔄 RECOVERY", "Shot %d - waiting for velocity", shotNumber);
+            telemetry.addData("⚡ Current Speed", "%.0f ticks/sec (%.0f%%)", 
+                currentVelocity, speedPercentage * 100);
+            telemetry.addData("💡 Speed Light", getSpeedLightStatus(currentVelocity));
+            telemetry.addData("⏱️ Recovery Time", "%.1f / %.1f seconds", timeout.seconds(), SHOOTER_SPINUP_TIMEOUT);
+            
+            // Check if we've reached target speed
+            if (speedPercentage >= SHOOTER_SPEED_THRESHOLD) {
+                telemetry.addData("✅ RECOVERED", "Velocity restored for shot %d!", shotNumber);
+                telemetry.update();
+                return;
+            }
+            
+            telemetry.update();
+            sleep(50);
+        }
+        
+        // If we get here, we timed out
+        telemetry.addData("⚠️ WARNING", "Shot %d velocity recovery timeout - firing anyway", shotNumber);
+        telemetry.addData("⚡ Final Speed", "%.0f ticks/sec (%.0f%%)", 
+            currentVelocity, speedPercentage * 100);
         telemetry.update();
     }
     
