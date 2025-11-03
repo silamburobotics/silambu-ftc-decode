@@ -69,16 +69,17 @@ public class AutoOpDECODESimple extends LinearOpMode {
         // Display autonomous sequence
         telemetry.addData("Status", "AutoOpDECODESimple - Initialized");
         telemetry.addData("=== AUTONOMOUS SEQUENCE ===", "");
-        telemetry.addData("1.", "Start shooter + servo");
+        telemetry.addData("1.", "Start shooter + servo + conveyor");
         telemetry.addData("2.", "Wait for max velocity");
         telemetry.addData("3.", "Fire shot 1");
         telemetry.addData("4.", "Move indexor + wait");
         telemetry.addData("5.", "Fire shot 2");
         telemetry.addData("6.", "Move indexor + wait");
         telemetry.addData("7.", "Fire shot 3");
-        telemetry.addData("8.", "Stop shooter");
+        telemetry.addData("8.", "Stop shooter system");
         telemetry.addData("", "");
         telemetry.addData("Shooter Speed", "%.0f ticks/sec", SHOOTER_TARGET_VELOCITY);
+        telemetry.addData("Conveyor Power", "%.0f%%", CONVEYOR_POWER * 100);
         telemetry.addData("Shots", "3 total shots");
         telemetry.addData("Total Time", "~15-20 seconds");
         telemetry.update();
@@ -139,8 +140,12 @@ public class AutoOpDECODESimple extends LinearOpMode {
         // Start shooter servo
         shooterServo.setPower(SHOOTER_SERVO_POWER);
         
+        // Start conveyor to help feed balls
+        conveyor.setPower(CONVEYOR_POWER);
+        
         telemetry.addData("✅ Shooter", "Started at %.0f ticks/sec", SHOOTER_TARGET_VELOCITY);
         telemetry.addData("✅ Shooter Servo", "Running at %.1f power", SHOOTER_SERVO_POWER);
+        telemetry.addData("✅ Conveyor", "Running at %.1f power", CONVEYOR_POWER);
         telemetry.update();
     }
     
@@ -247,11 +252,15 @@ public class AutoOpDECODESimple extends LinearOpMode {
         // Stop shooter servo
         shooterServo.setPower(0);
         
+        // Stop conveyor
+        conveyor.setPower(0);
+        
         // Turn off speed light
         speedLight.setPosition(LIGHT_OFF_POSITION);
         
         telemetry.addData("✅ Shooter", "Stopped");
         telemetry.addData("✅ Shooter Servo", "Stopped");
+        telemetry.addData("✅ Conveyor", "Stopped");
         telemetry.addData("💡 Speed Light", "Off");
         telemetry.update();
     }
