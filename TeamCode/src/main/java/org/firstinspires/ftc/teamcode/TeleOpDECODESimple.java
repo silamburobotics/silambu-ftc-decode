@@ -32,10 +32,12 @@ public class TeleOpDECODESimple extends LinearOpMode {
     private DcMotorEx rightBack;
     
     // Variables to track button states
-    private boolean previousA = false;
-    private boolean previousX = false;
-    private boolean previousY = false;
-    private boolean previousB = false;  // For trigger control
+    private boolean previousA = false;  // Gamepad1 A button (intake)
+    
+    // Gamepad2 button states (operator controls)
+    private boolean previousX2 = false; // Gamepad2 X button (indexor)
+    private boolean previousY2 = false; // Gamepad2 Y button (shooter)
+    private boolean previousB2 = false; // Gamepad2 B button (trigger)
     
     // Shooter state tracking
     private boolean shooterIntentionallyRunning = false;
@@ -100,15 +102,17 @@ public class TeleOpDECODESimple extends LinearOpMode {
         telemetry.addData("Status", "DECODE Simple + Intake - Initialized");
         telemetry.addData("=== GAMEPAD 1 (DRIVER) ===", "");
         telemetry.addData("A Button", "Intake + Conveyor + Indexor");
-        telemetry.addData("X Button", "Indexor to Position (%d ticks)", INDEXOR_TICKS);
-        telemetry.addData("Y Button", "Shooter + Shooter Servo");
-        telemetry.addData("B Button", "Auto Fire (Fire → Home)");
         telemetry.addData("Left Stick", "Drive/Strafe");
         telemetry.addData("Right Stick X", "Turn");
+        telemetry.addData("=== GAMEPAD 2 (OPERATOR) ===", "");
+        telemetry.addData("X Button", "Indexor + Conveyor (%d ticks)", INDEXOR_TICKS);
+        telemetry.addData("Y Button", "Shooter + Shooter Servo");
+        telemetry.addData("B Button", "Auto Fire (Fire → Home)");
+        telemetry.addData("", "");
         telemetry.addData("Drive Speed", "%.0f%% max", DRIVE_SPEED_MULTIPLIER * 100);
         telemetry.addData("Strafe Speed", "%.0f%% max", STRAFE_SPEED_MULTIPLIER * 100);
         telemetry.addData("Turn Speed", "%.0f%% max", TURN_SPEED_MULTIPLIER * 100);
-        telemetry.addData("Note", "Simple + Full System");
+        telemetry.addData("Note", "Driver/Operator Split Controls");
         telemetry.update();
         
         waitForStart();
@@ -200,35 +204,39 @@ public class TeleOpDECODESimple extends LinearOpMode {
     private void handleControllerInputs() {
         // Get current button states for gamepad1 (driver)
         boolean currentA = gamepad1.a;
-        boolean currentX = gamepad1.x;
-        boolean currentY = gamepad1.y;
-        boolean currentB = gamepad1.b;
+        
+        // Get current button states for gamepad2 (operator)
+        boolean currentX2 = gamepad2.x;
+        boolean currentY2 = gamepad2.y;
+        boolean currentB2 = gamepad2.b;
         
         // Handle A button on gamepad1 - Toggle Intake, Conveyor, and Indexor
         if (currentA && !previousA) {
             toggleIntakeSystem();
         }
         
-        // Handle X button on gamepad1 - Run Indexor to Position
-        if (currentX && !previousX) {
+        // Handle X button on gamepad2 - Run Indexor to Position
+        if (currentX2 && !previousX2) {
             runIndexorToPosition();
         }
         
-        // Handle Y button on gamepad1 - Toggle Shooter
-        if (currentY && !previousY) {
+        // Handle Y button on gamepad2 - Toggle Shooter
+        if (currentY2 && !previousY2) {
             toggleShooter();
         }
         
-        // Handle B button on gamepad1 - Toggle Trigger Servo
-        if (currentB && !previousB) {
+        // Handle B button on gamepad2 - Toggle Trigger Servo
+        if (currentB2 && !previousB2) {
             toggleTriggerServo();
         }
         
         // Update previous button states for gamepad1
         previousA = currentA;
-        previousX = currentX;
-        previousY = currentY;
-        previousB = currentB;
+        
+        // Update previous button states for gamepad2
+        previousX2 = currentX2;
+        previousY2 = currentY2;
+        previousB2 = currentB2;
     }
     
     private void toggleIntakeSystem() {
@@ -267,6 +275,9 @@ public class TeleOpDECODESimple extends LinearOpMode {
         // Stop any continuous power mode first
         indexor.setPower(0);
         
+        // Start conveyor to help feed balls through the system
+        conveyor.setPower(CONVEYOR_POWER);
+        
         // Calculate target position
         int currentPosition = indexor.getCurrentPosition();
         int targetPosition = currentPosition + INDEXOR_TICKS;
@@ -282,6 +293,7 @@ public class TeleOpDECODESimple extends LinearOpMode {
         startIndexorStuckDetection();
         
         telemetry.addData("Indexor Position", "Moving to: %d (from %d)", targetPosition, currentPosition);
+        telemetry.addData("Conveyor", "RUNNING at %.1f power", CONVEYOR_POWER);
         telemetry.addData("Indexor Ticks", "%d", INDEXOR_TICKS);
         telemetry.update();
     }
@@ -298,7 +310,12 @@ public class TeleOpDECODESimple extends LinearOpMode {
             indexorRunningToPosition = false;
             indexorStuckDetectionActive = false;
             indexor.setPower(0);
+            
+            // Stop conveyor when indexor positioning is complete
+            conveyor.setPower(0);
+            
             telemetry.addData("✅ INDEXOR", "Position reached");
+            telemetry.addData("✅ CONVEYOR", "Stopped");
             return;
         }
         
@@ -315,13 +332,15 @@ public class TeleOpDECODESimple extends LinearOpMode {
             
             // Check if indexor hasn't moved enough (stuck)
             if (positionChange < INDEXOR_PROGRESS_THRESHOLD) {
-                // Indexor is stuck - set to float
+                // Indexor is stuck - set to float and stop conveyor
                 indexor.setPower(0);
                 indexor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
+                conveyor.setPower(0);  // Stop conveyor when stuck
                 indexorStuckDetectionActive = false;
                 indexorRunningToPosition = false;
                 
                 telemetry.addData("⚠️ INDEXOR STUCK", "Set to FLOAT mode");
+                telemetry.addData("⚠️ CONVEYOR", "Stopped due to stuck indexor");
                 telemetry.addData("Position Change", "%d ticks in %.1fs", positionChange, timeElapsed);
                 telemetry.addData("Action", "Motor floating - press X or A to restart");
             } else {
@@ -380,7 +399,7 @@ public class TeleOpDECODESimple extends LinearOpMode {
         boolean intakeRunning = Math.abs(intake.getPower()) > 0.1;
         if (intakeRunning) {
             telemetry.addData("🚫 TRIGGER BLOCKED", "Cannot move trigger while intake is running");
-            telemetry.addData("💡 Safety Tip", "Stop intake (A button) before using trigger");
+            telemetry.addData("💡 Safety Tip", "Stop intake (Gamepad1 A button) before using trigger");
             telemetry.update();
             return;
         }
