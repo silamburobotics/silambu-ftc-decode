@@ -504,7 +504,7 @@ public class TeleOpDECODE extends LinearOpMode {
                 // Determine distance category for better feedback
                 String distanceCategory;
                 String distanceAdvice;
-                if (distance < 100.0) {
+                if (distance < 90.0) {
                     distanceCategory = "� CLOSE RANGE";
                     distanceAdvice = "Within optimal range";
                 } else {
@@ -513,9 +513,9 @@ public class TeleOpDECODE extends LinearOpMode {
                 }
                 
                 // Adjust shooter velocity based on distance
-                if (distance < 100.0) {
+                if (distance < 90.0) {
                     // Close range - use lower velocity
-                    SHOOTER_TARGET_VELOCITY = 1300;
+                    SHOOTER_TARGET_VELOCITY = 1250;
                 } else {
                     // Long range - use higher velocity  
                     SHOOTER_TARGET_VELOCITY = 1600;
@@ -880,11 +880,17 @@ public class TeleOpDECODE extends LinearOpMode {
                            (Math.abs(conveyor.getPower()) > 0.1);
         
         if (isRunning) {
-            // Stop both motors
+            // Stop motors: intake, conveyor, and indexor
             intake.setPower(0);
             conveyor.setPower(0);
+            // Stop indexor when intake stops
+            indexor.setPower(0);
+            indexor.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
+            indexorIsRunning = false;
+            indexorIsRecovering = false;
             intakeAutoStopped = false; // Reset auto-stop flag when manually stopped
             telemetry.addData("Intake & Converyor", "STOPPED");
+            telemetry.addData("Indexor", "STOPPED with intake");
         } else {
             // Safety check: Don't start intake if trigger is in fire position
             double currentTriggerPosition = triggerServo.getPosition();
@@ -894,14 +900,18 @@ public class TeleOpDECODE extends LinearOpMode {
                 telemetry.addData("🚫 SAFETY BLOCK", "Cannot start intake - Trigger in FIRE position!");
                 telemetry.addData("Action Required", "Move trigger to retracted position first (Press B)");
             } else {
-                // Start both motors
+                // Start motors: intake, conveyor, and indexor
                 intake.setPower(INTAKE_POWER);
                 conveyor.setPower(CONVEYOR_POWER);
+                // Start indexor when intake starts
+                indexor.setPower(AUTO_INDEXOR_POWER);
+                indexor.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
                 intakeAutoStopped = false; // Reset auto-stop flag when manually started
                 // Reset ball management system when intake starts
                 ballDetectionTimer.reset();
                 allPositionsFilled = false;
                 telemetry.addData("Intake & Converyor", "RUNNING");
+                telemetry.addData("Indexor", "RUNNING with intake");
                 telemetry.addData("🤖 Auto-Ball System", "Monitoring for balls...");
             }
         }
@@ -941,6 +951,11 @@ public class TeleOpDECODE extends LinearOpMode {
             joystickY = 0.0;
         }
         
+        // PREVENT REVERSE MOVEMENT: Only allow forward direction (positive values)
+        if (joystickY < 0.0) {
+            joystickY = 0.0; // Block reverse movement
+        }
+        
         // Check if joystick is being actively used
         boolean joystickActive = Math.abs(joystickY) > 0.0;
         
@@ -958,27 +973,18 @@ public class TeleOpDECODE extends LinearOpMode {
                 manualIndexorControl = true;
             }
             
-            // Set manual indexor power and start conveyor
+            // Set manual indexor power and start conveyor (only forward direction allowed)
             double indexorPower = joystickY * MANUAL_INDEXOR_POWER;
             indexor.setPower(indexorPower);
             
             // Start conveyor when joystick is active
             conveyor.setPower(CONVEYOR_POWER);
             
-            // Check if indexor is moving in reverse (negative power)
-            if (indexorPower < -0.05) { // Small threshold to avoid noise
-                // Indexor is rotating reverse - set trigger to home position
-                if (Math.abs(triggerServo.getPosition() - TRIGGER_HOME) > 0.05) {
-                    triggerServo.setPosition(TRIGGER_HOME);
-                    telemetry.addData("🔧 Auto-Safety", "Trigger moved to HOME (reverse rotation detected)");
-                }
-            }
-            
             // Debug telemetry for joystick troubleshooting
             telemetry.addData("🔍 Joystick Debug", "Raw Y: %.3f, Processed: %.3f", gamepad2.right_stick_y, joystickY);
-            telemetry.addData("Indexor Manual", "Power: %.2f (%.0f%%)", indexorPower, indexorPower * 100);
+            telemetry.addData("Indexor Manual", "Power: %.2f (%.0f%%) - FORWARD ONLY", indexorPower, indexorPower * 100);
             telemetry.addData("Conveyor Manual", "RUNNING at %.2f power", CONVEYOR_POWER);
-            telemetry.addData("Control Mode", "MANUAL - Right Joystick");
+            telemetry.addData("Control Mode", "MANUAL - Right Joystick (No Reverse)");
             
         } else if (manualIndexorControl) {
             // Joystick released - stop indexor, conveyor and return to automatic mode
@@ -1654,13 +1660,25 @@ public class TeleOpDECODE extends LinearOpMode {
                 rightFront.setPower(0);
                 leftBack.setPower(0);
                 rightBack.setPower(0);
+                // Stop indexor when ball alignment stops
+                indexor.setPower(0);
+                indexor.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
+                indexorIsRunning = false;
+                indexorIsRecovering = false;
                 telemetry.addData("⚽ Ball Alignment", "STOPPED by driver");
+                telemetry.addData("Indexor", "STOPPED with ball alignment");
             } else {
                 // Set trigger to HOME position at the start
                 triggerServo.setPosition(TRIGGER_HOME);
                 manualTriggerControl = true;
                 triggerManualTimer.reset();
                 telemetry.addData("🔧 Trigger", "Set to HOME position (%.2f)", TRIGGER_HOME);
+                
+                // Start indexor when ball alignment starts
+                indexor.setPower(AUTO_INDEXOR_POWER);
+                indexor.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
+                indexorIsRunning = false; // Set to false since we're not using position control
+                telemetry.addData("Indexor", "RUNNING with ball alignment");
                 
                 // Check if ball detector is available
                 if (ballDetector == null) {
