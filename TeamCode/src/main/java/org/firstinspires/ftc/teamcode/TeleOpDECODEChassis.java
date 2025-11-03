@@ -1,0 +1,547 @@
+package org.firstinspires.ftc.teamcode;
+
+import com.acmerobotics.dashboard.config.Config;
+import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
+import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
+import com.qualcomm.robotcore.hardware.DcMotor;
+import com.qualcomm.robotcore.hardware.DcMotorEx;
+import com.qualcomm.robotcore.hardware.DcMotorSimple;
+import com.qualcomm.robotcore.hardware.CRServo;
+import com.qualcomm.robotcore.hardware.Servo;
+import com.qualcomm.robotcore.util.ElapsedTime;
+
+@Config
+@TeleOp(name = "TeleOpDECODESimple", group = "TeleOp")
+public class TeleOpDECODESimple extends LinearOpMode {
+    
+    // Declare motors
+    private DcMotorEx indexor;
+    private DcMotorEx intake;
+    private DcMotorEx conveyor;
+    private DcMotorEx shooter;
+    
+    // Declare servos
+    private CRServo shooterServo;
+    private Servo speedLight;
+    private Servo triggerServo;
+    
+    // Declare mecanum drive motors
+    private DcMotorEx leftFront;
+    private DcMotorEx rightFront;
+    private DcMotorEx leftBack;
+    private DcMotorEx rightBack;
+    
+    // Variables to track button states
+    private boolean previousA = false;
+    private boolean previousX = false;
+    private boolean previousY = false;
+    private boolean previousB = false;  // For trigger control
+    
+    // Shooter state tracking
+    private boolean shooterIntentionallyRunning = false;
+    
+    // Trigger servo management
+    private boolean manualTriggerControl = false; // Track if trigger is under manual control
+    private ElapsedTime triggerManualTimer = new ElapsedTime(); // Timer for manual control timeout
+    private boolean triggerAutoFireSequence = false; // Track if auto fire sequence is active
+    private ElapsedTime triggerFireTimer = new ElapsedTime(); // Timer for fire sequence
+    
+    // Indexor stuck detection variables
+    private ElapsedTime indexorTimer = new ElapsedTime();
+    private int lastIndexorPosition = 0;
+    private boolean indexorStuckDetectionActive = false;
+    
+    // Indexor position control variables
+    private boolean indexorRunningToPosition = false;
+    
+    // Motor power settings
+    public static final double INTAKE_POWER = 0.8;
+    public static final double CONVEYOR_POWER = 1.0;
+    public static final double AUTO_INDEXOR_POWER = 0.1;      // Power for automatic indexor movement
+    public static final double SHOOTER_POWER = 1.0;
+    public static final double SHOOTER_SERVO_POWER = 1.0;     // Positive for forward direction
+    
+    // Indexor position settings
+    public static final int INDEXOR_TICKS = 179;              // goBILDA 312 RPM motor: 120 degrees = 179 ticks
+    
+    // Shooter velocity control (ticks per second)
+    public static double SHOOTER_TARGET_VELOCITY = 1600;      // Range: 1200-1800 ticks/sec
+    public static final double SHOOTER_SPEED_THRESHOLD = 0.95; // 95% of target speed
+    public static final double SHOOTER_TICKS_PER_REVOLUTION = 1020.0; // goBILDA 435 RPM motor
+    
+    // Speed light control settings (using servo positions for LED control)
+    public static final double LIGHT_OFF_POSITION = 0.0;      // Servo position for light off
+    public static final double LIGHT_GREEN_POSITION = 0.5;    // Servo position for green light
+    public static final double LIGHT_WHITE_POSITION = 1.0;    // Servo position for white light
+    
+    // Trigger servo positions
+    public static final double TRIGGER_FIRE = 0.15;     // 27 degrees (27/180 = 0.15) - FIRE POSITION (compact)
+    public static final double TRIGGER_HOME = 0.76;     // 137 degrees (137/180 = 0.76) - HOME/SAFE POSITION (retracted)
+    
+    // Trigger management
+    public static final double MANUAL_TRIGGER_TIMEOUT = 3.0;  // Seconds before auto-management resumes
+    public static final double TRIGGER_FIRE_DURATION = 0.5;   // Seconds to stay in fire position before returning home
+    
+    // Stuck detection settings
+    public static final double INDEXOR_STUCK_TIMEOUT = 3.0;    // seconds - time before considering indexor stuck
+    public static final int INDEXOR_PROGRESS_THRESHOLD = 20;   // minimum ticks of progress required
+    
+    // Mecanum drive settings
+    public static final double DRIVE_SPEED_MULTIPLIER = 0.8;  // Max drive speed (0.0 to 1.0)
+    public static final double STRAFE_SPEED_MULTIPLIER = 0.8; // Max strafe speed (0.0 to 1.0)
+    public static final double TURN_SPEED_MULTIPLIER = 0.6;   // Max turn speed (0.0 to 1.0)
+    
+    @Override
+    public void runOpMode() {
+        // Initialize motors
+        initializeMotors();
+        
+        // Wait for the game to start (driver presses PLAY)
+        telemetry.addData("Status", "DECODE Simple + Intake - Initialized");
+        telemetry.addData("=== GAMEPAD 1 (DRIVER) ===", "");
+        telemetry.addData("A Button", "Intake + Conveyor + Indexor");
+        telemetry.addData("X Button", "Indexor to Position (%d ticks)", INDEXOR_TICKS);
+        telemetry.addData("Y Button", "Shooter + Shooter Servo");
+        telemetry.addData("B Button", "Auto Fire (Fire → Home)");
+        telemetry.addData("Left Stick", "Drive/Strafe");
+        telemetry.addData("Right Stick X", "Turn");
+        telemetry.addData("Drive Speed", "%.0f%% max", DRIVE_SPEED_MULTIPLIER * 100);
+        telemetry.addData("Strafe Speed", "%.0f%% max", STRAFE_SPEED_MULTIPLIER * 100);
+        telemetry.addData("Turn Speed", "%.0f%% max", TURN_SPEED_MULTIPLIER * 100);
+        telemetry.addData("Note", "Simple + Full System");
+        telemetry.update();
+        
+        waitForStart();
+        
+        // Run until the end of the match (driver presses STOP)
+        while (opModeIsActive()) {
+            handleControllerInputs();
+            handleMecanumDrive();
+            checkIndexorStuck();
+            checkTriggerTimeout();
+            handleTriggerAutoFire();
+            updateSpeedLight();
+            updateTelemetry();
+            sleep(20); // Small delay to prevent excessive CPU usage
+        }
+    }
+    
+    private void initializeMotors() {
+        // Initialize all motors
+        indexor = hardwareMap.get(DcMotorEx.class, "indexor");
+        intake = hardwareMap.get(DcMotorEx.class, "intake");
+        conveyor = hardwareMap.get(DcMotorEx.class, "conveyor");
+        shooter = hardwareMap.get(DcMotorEx.class, "shooter");
+        
+        // Initialize servos
+        shooterServo = hardwareMap.get(CRServo.class, "shooterServo");
+        speedLight = hardwareMap.get(Servo.class, "speedLight");
+        triggerServo = hardwareMap.get(Servo.class, "triggerServo");
+        
+        // Initialize mecanum drive motors
+        leftFront = hardwareMap.get(DcMotorEx.class, "leftFront");
+        rightFront = hardwareMap.get(DcMotorEx.class, "rightFront");
+        leftBack = hardwareMap.get(DcMotorEx.class, "leftBack");
+        rightBack = hardwareMap.get(DcMotorEx.class, "rightBack");
+        
+        // Set motor directions
+        indexor.setDirection(DcMotor.Direction.REVERSE);
+        intake.setDirection(DcMotor.Direction.FORWARD);
+        conveyor.setDirection(DcMotor.Direction.REVERSE);
+        shooter.setDirection(DcMotor.Direction.REVERSE);
+        
+        // Set servo directions
+        shooterServo.setDirection(DcMotorSimple.Direction.REVERSE);
+        speedLight.setDirection(Servo.Direction.FORWARD);
+        triggerServo.setDirection(Servo.Direction.FORWARD);
+        
+        // Initialize speed light to off position
+        speedLight.setPosition(LIGHT_OFF_POSITION);
+        
+        // Initialize trigger servo to home (safe) position
+        triggerServo.setPosition(TRIGGER_HOME);
+        
+        // Set mecanum drive motor directions
+        leftFront.setDirection(DcMotor.Direction.REVERSE);
+        rightFront.setDirection(DcMotor.Direction.FORWARD);
+        leftBack.setDirection(DcMotor.Direction.REVERSE);
+        rightBack.setDirection(DcMotor.Direction.FORWARD);
+        
+        // Set zero power behavior
+        indexor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+        intake.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+        conveyor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+        shooter.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
+        
+        // Set mecanum drive motor zero power behavior
+        leftFront.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+        rightFront.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+        leftBack.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+        rightBack.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+        
+        // Reset encoders
+        indexor.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+        intake.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
+        conveyor.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
+        
+        // Set shooter mode
+        shooter.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+        
+        // Set mecanum drive motors to run without encoders for teleop
+        leftFront.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
+        rightFront.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
+        leftBack.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
+        rightBack.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
+        
+        // Set indexor to use encoder
+        indexor.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+    }
+    
+    private void handleControllerInputs() {
+        // Get current button states for gamepad1 (driver)
+        boolean currentA = gamepad1.a;
+        boolean currentX = gamepad1.x;
+        boolean currentY = gamepad1.y;
+        boolean currentB = gamepad1.b;
+        
+        // Handle A button on gamepad1 - Toggle Intake, Conveyor, and Indexor
+        if (currentA && !previousA) {
+            toggleIntakeSystem();
+        }
+        
+        // Handle X button on gamepad1 - Run Indexor to Position
+        if (currentX && !previousX) {
+            runIndexorToPosition();
+        }
+        
+        // Handle Y button on gamepad1 - Toggle Shooter
+        if (currentY && !previousY) {
+            toggleShooter();
+        }
+        
+        // Handle B button on gamepad1 - Toggle Trigger Servo
+        if (currentB && !previousB) {
+            toggleTriggerServo();
+        }
+        
+        // Update previous button states for gamepad1
+        previousA = currentA;
+        previousX = currentX;
+        previousY = currentY;
+        previousB = currentB;
+    }
+    
+    private void toggleIntakeSystem() {
+        // Check if any motor is running
+        boolean isRunning = (Math.abs(intake.getPower()) > 0.1) || 
+                           (Math.abs(conveyor.getPower()) > 0.1);
+        
+        if (isRunning) {
+            // Stop all motors: intake, conveyor, and indexor
+            intake.setPower(0);
+            conveyor.setPower(0);
+            indexor.setPower(0);
+            // Reset indexor to BRAKE behavior and stop all detection
+            indexor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+            indexor.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
+            indexorStuckDetectionActive = false;
+            indexorRunningToPosition = false;
+            telemetry.addData("Intake System", "STOPPED");
+        } else {
+            // Start all motors: intake, conveyor, and indexor
+            intake.setPower(INTAKE_POWER);
+            conveyor.setPower(CONVEYOR_POWER);
+            indexor.setPower(AUTO_INDEXOR_POWER);
+            // Reset indexor to BRAKE behavior and start stuck detection
+            indexor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+            startIndexorStuckDetection();
+            telemetry.addData("Intake System", "RUNNING");
+            telemetry.addData("Intake", "%.1f power", INTAKE_POWER);
+            telemetry.addData("Conveyor", "%.1f power", CONVEYOR_POWER);
+            telemetry.addData("Indexor", "%.1f power", AUTO_INDEXOR_POWER);
+        }
+        telemetry.update();
+    }
+    
+    private void runIndexorToPosition() {
+        // Stop any continuous power mode first
+        indexor.setPower(0);
+        
+        // Calculate target position
+        int currentPosition = indexor.getCurrentPosition();
+        int targetPosition = currentPosition + INDEXOR_TICKS;
+        
+        // Reset motor behavior to BRAKE and set to position mode
+        indexor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+        indexor.setTargetPosition(targetPosition);
+        indexor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+        indexor.setPower(AUTO_INDEXOR_POWER);
+        
+        // Start tracking
+        indexorRunningToPosition = true;
+        startIndexorStuckDetection();
+        
+        telemetry.addData("Indexor Position", "Moving to: %d (from %d)", targetPosition, currentPosition);
+        telemetry.addData("Indexor Ticks", "%d", INDEXOR_TICKS);
+        telemetry.update();
+    }
+    
+    private void startIndexorStuckDetection() {
+        indexorStuckDetectionActive = true;
+        indexorTimer.reset();
+        lastIndexorPosition = indexor.getCurrentPosition();
+    }
+    
+    private void checkIndexorStuck() {
+        // Check if indexor is running to position and completed
+        if (indexorRunningToPosition && !indexor.isBusy()) {
+            indexorRunningToPosition = false;
+            indexorStuckDetectionActive = false;
+            indexor.setPower(0);
+            telemetry.addData("✅ INDEXOR", "Position reached");
+            return;
+        }
+        
+        if (!indexorStuckDetectionActive || Math.abs(indexor.getPower()) < 0.01) {
+            return; // Not monitoring or indexor is not running
+        }
+        
+        int currentPosition = indexor.getCurrentPosition();
+        double timeElapsed = indexorTimer.seconds();
+        
+        // Check if enough time has passed for stuck detection
+        if (timeElapsed > INDEXOR_STUCK_TIMEOUT) {
+            int positionChange = Math.abs(currentPosition - lastIndexorPosition);
+            
+            // Check if indexor hasn't moved enough (stuck)
+            if (positionChange < INDEXOR_PROGRESS_THRESHOLD) {
+                // Indexor is stuck - set to float
+                indexor.setPower(0);
+                indexor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
+                indexorStuckDetectionActive = false;
+                indexorRunningToPosition = false;
+                
+                telemetry.addData("⚠️ INDEXOR STUCK", "Set to FLOAT mode");
+                telemetry.addData("Position Change", "%d ticks in %.1fs", positionChange, timeElapsed);
+                telemetry.addData("Action", "Motor floating - press X or A to restart");
+            } else {
+                // Reset detection timer if making progress
+                indexorTimer.reset();
+                lastIndexorPosition = currentPosition;
+            }
+        }
+    }
+    
+    private void toggleShooter() {
+        // Check if shooter is currently running
+        if (shooterIntentionallyRunning) {
+            // Stop shooter and servo
+            shooter.setPower(0);
+            shooterServo.setPower(0);
+            shooterIntentionallyRunning = false;
+            
+            telemetry.addData("Shooter System", "STOPPED");
+        } else {
+            // Start shooter with velocity control and servo
+            shooter.setVelocity(SHOOTER_TARGET_VELOCITY);
+            shooterServo.setPower(SHOOTER_SERVO_POWER);
+            shooterIntentionallyRunning = true;
+            
+            telemetry.addData("Shooter System", "RUNNING at %d ticks/sec", SHOOTER_TARGET_VELOCITY);
+        }
+        telemetry.update();
+    }
+    
+    private void updateSpeedLight() {
+        if (!shooterIntentionallyRunning) {
+            // Shooter is off - speed light should be off
+            speedLight.setPosition(LIGHT_OFF_POSITION);
+            return;
+        }
+        
+        // Shooter is on - check speed
+        double currentVelocity = shooter.getVelocity();
+        double speedPercentage = currentVelocity / SHOOTER_TARGET_VELOCITY;
+        
+        if (currentVelocity > 50 && speedPercentage > SHOOTER_SPEED_THRESHOLD) {
+            // Speed is good - green light
+            speedLight.setPosition(LIGHT_GREEN_POSITION);
+        } else if (currentVelocity > 50 && speedPercentage > 0.7) {
+            // Speed is medium - white light
+            speedLight.setPosition(LIGHT_WHITE_POSITION);
+        } else {
+            // Speed is low - off (no light)
+            speedLight.setPosition(LIGHT_OFF_POSITION);
+        }
+    }
+    
+    private void toggleTriggerServo() {
+        // Check if intake is running - safety first!
+        boolean intakeRunning = Math.abs(intake.getPower()) > 0.1;
+        if (intakeRunning) {
+            telemetry.addData("🚫 TRIGGER BLOCKED", "Cannot move trigger while intake is running");
+            telemetry.addData("💡 Safety Tip", "Stop intake (A button) before using trigger");
+            telemetry.update();
+            return;
+        }
+        
+        // Start auto fire sequence
+        triggerAutoFireSequence = true;
+        triggerFireTimer.reset();
+        
+        // Move to FIRE position
+        triggerServo.setPosition(TRIGGER_FIRE);
+        telemetry.addData("🎯 AUTO FIRE", "Moving to FIRE position (27°)");
+        telemetry.addData("⏱️ Timer", "Will return to HOME in %.1fs", TRIGGER_FIRE_DURATION);
+        telemetry.update();
+    }
+    
+    private void checkTriggerTimeout() {
+        // Check if manual trigger control has timed out
+        if (manualTriggerControl && triggerManualTimer.seconds() > MANUAL_TRIGGER_TIMEOUT) {
+            manualTriggerControl = false;
+            
+            // Get current trigger position
+            double currentTriggerPosition = triggerServo.getPosition();
+            boolean triggerInFirePosition = Math.abs(currentTriggerPosition - TRIGGER_FIRE) < 0.05;
+            
+            // If trigger is in fire position and intake is not running, move to home for safety
+            boolean intakeRunning = Math.abs(intake.getPower()) > 0.1;
+            if (triggerInFirePosition && !intakeRunning) {
+                // Check if it's safe to move trigger to home position
+                if (Math.abs(currentTriggerPosition - TRIGGER_HOME) > 0.05) {
+                    triggerServo.setPosition(TRIGGER_HOME);
+                }
+            }
+        }
+    }
+    
+    private void handleTriggerAutoFire() {
+        // Handle automatic fire sequence
+        if (triggerAutoFireSequence && triggerFireTimer.seconds() >= TRIGGER_FIRE_DURATION) {
+            // Time to return to home position
+            triggerServo.setPosition(TRIGGER_HOME);
+            triggerAutoFireSequence = false;
+            
+            telemetry.addData("🏠 AUTO RETURN", "Trigger returned to HOME position (137°)");
+            telemetry.addData("✅ COMPLETE", "Fire sequence finished");
+            telemetry.update();
+        }
+    }
+    
+    private void handleMecanumDrive() {
+        // Get joystick inputs
+        double drive = -gamepad1.left_stick_y;  // Forward/backward (reversed: negative for forward - robot facing swapped)
+        double strafe = gamepad1.left_stick_x;  // Left/right strafe (normal: positive for right strafe)
+        double turn = -gamepad1.right_stick_x;  // Rotation (swapped: negative for right turn)
+        
+        // Apply speed multipliers
+        drive *= DRIVE_SPEED_MULTIPLIER;
+        strafe *= STRAFE_SPEED_MULTIPLIER;
+        turn *= TURN_SPEED_MULTIPLIER;
+        
+        // Calculate mecanum wheel powers
+        double frontLeftPower = drive + strafe + turn;
+        double frontRightPower = drive - strafe - turn;
+        double backLeftPower = drive - strafe + turn;
+        double backRightPower = drive + strafe - turn;
+        
+        // Normalize powers to ensure they don't exceed 1.0
+        double maxPower = Math.max(Math.max(Math.abs(frontLeftPower), Math.abs(frontRightPower)),
+                                  Math.max(Math.abs(backLeftPower), Math.abs(backRightPower)));
+        
+        if (maxPower > 1.0) {
+            frontLeftPower /= maxPower;
+            frontRightPower /= maxPower;
+            backLeftPower /= maxPower;
+            backRightPower /= maxPower;
+        }
+        
+        // Apply powers to motors
+        leftFront.setPower(frontLeftPower);
+        rightFront.setPower(frontRightPower);
+        leftBack.setPower(backLeftPower);
+        rightBack.setPower(backRightPower);
+    }
+    
+    private void updateTelemetry() {
+        // Show current system status
+        telemetry.addData("Status", "DECODE Simple + Full System - RUNNING");
+        telemetry.addData("", "");
+        
+        // Show drive values
+        telemetry.addData("Drive", "%.2f", -gamepad1.left_stick_y);
+        telemetry.addData("Strafe", "%.2f", gamepad1.left_stick_x);
+        telemetry.addData("Turn", "%.2f", -gamepad1.right_stick_x);
+        telemetry.addData("", "");
+        
+        // Show motor powers
+        telemetry.addData("Intake Power", "%.2f", intake.getPower());
+        telemetry.addData("Conveyor Power", "%.2f", conveyor.getPower());
+        telemetry.addData("Indexor Power", "%.2f", indexor.getPower());
+        telemetry.addData("", "");
+        
+        // Show shooter status
+        if (shooterIntentionallyRunning) {
+            telemetry.addData("Shooter", "RUNNING");
+            telemetry.addData("Target Velocity", "%d ticks/sec", SHOOTER_TARGET_VELOCITY);
+            telemetry.addData("Current Velocity", "%.0f ticks/sec", shooter.getVelocity());
+            telemetry.addData("Shooter Servo", "%.2f", shooterServo.getPower());
+            telemetry.addData("Speed Light", "%.2f", speedLight.getPosition());
+        } else {
+            telemetry.addData("Shooter", "STOPPED");
+        }
+        telemetry.addData("", "");
+        
+        // Show trigger status
+        double currentTriggerPosition = triggerServo.getPosition();
+        boolean triggerInFirePosition = Math.abs(currentTriggerPosition - TRIGGER_FIRE) < 0.05;
+        if (triggerInFirePosition) {
+            telemetry.addData("Trigger Position", "🎯 FIRE (%.2f)", currentTriggerPosition);
+        } else {
+            telemetry.addData("Trigger Position", "🏠 HOME (%.2f)", currentTriggerPosition);
+        }
+        
+        if (triggerAutoFireSequence) {
+            double timeLeft = TRIGGER_FIRE_DURATION - triggerFireTimer.seconds();
+            if (timeLeft > 0) {
+                telemetry.addData("🎯 Auto Fire", "Returning to HOME in %.1fs", timeLeft);
+            } else {
+                telemetry.addData("🎯 Auto Fire", "Completing sequence...");
+            }
+        } else if (manualTriggerControl) {
+            double timeLeft = MANUAL_TRIGGER_TIMEOUT - triggerManualTimer.seconds();
+            if (timeLeft > 0) {
+                telemetry.addData("Manual Trigger", "%.1fs remaining", timeLeft);
+            } else {
+                telemetry.addData("Manual Trigger", "TIMEOUT - Auto mode resumed");
+            }
+        }
+        
+        // Show stuck detection status
+        if (indexorRunningToPosition) {
+            telemetry.addData("Indexor Mode", "POSITION CONTROL");
+            telemetry.addData("Current Position", "%d", indexor.getCurrentPosition());
+            telemetry.addData("Target Position", "%d", indexor.getTargetPosition());
+            telemetry.addData("Is Busy", "%s", indexor.isBusy() ? "YES" : "NO");
+        } else if (indexorStuckDetectionActive) {
+            int currentPos = indexor.getCurrentPosition();
+            int posChange = Math.abs(currentPos - lastIndexorPosition);
+            telemetry.addData("Stuck Detection", "ACTIVE (%.1fs)", indexorTimer.seconds());
+            telemetry.addData("Position Change", "%d ticks", posChange);
+        } else if (indexor.getZeroPowerBehavior() == DcMotor.ZeroPowerBehavior.FLOAT) {
+            telemetry.addData("Indexor Status", "FLOATING (stuck detected)");
+        } else {
+            telemetry.addData("Stuck Detection", "INACTIVE");
+        }
+        telemetry.addData("", "");
+        
+        // Show chassis motor powers
+        telemetry.addData("Front Left", "%.2f", leftFront.getPower());
+        telemetry.addData("Front Right", "%.2f", rightFront.getPower());
+        telemetry.addData("Back Left", "%.2f", leftBack.getPower());
+        telemetry.addData("Back Right", "%.2f", rightBack.getPower());
+        
+        telemetry.update();
+    }
+}

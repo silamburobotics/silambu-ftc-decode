@@ -720,6 +720,8 @@ public class TeleOpDECODE extends LinearOpMode {
         int currentPosition = indexor.getCurrentPosition();
         int targetPosition = currentPosition + ticks;
         
+        // Reset motor behavior to BRAKE in case it was set to FLOAT due to stuck detection
+        indexor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         indexor.setTargetPosition(targetPosition);
         indexor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
         indexor.setPower(AUTO_INDEXOR_POWER);
@@ -817,8 +819,9 @@ public class TeleOpDECODE extends LinearOpMode {
     
     private void attemptIndexorRecovery() {
         if (indexorRecoveryAttempts >= 2) {
-            // Too many recovery attempts, give up
+            // Too many recovery attempts, give up and set motor to float
             indexor.setPower(0);
+            indexor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
             indexor.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
             indexorIsRunning = false;
             indexorIsRecovering = false;
@@ -828,8 +831,8 @@ public class TeleOpDECODE extends LinearOpMode {
                 conveyor.setPower(0);
             }
             
-            telemetry.addData("❌ INDEXOR FAILED", "Recovery failed after %d attempts", indexorRecoveryAttempts);
-            telemetry.addData("Action", "Manual intervention required - check for mechanical issues");
+            telemetry.addData("❌ INDEXOR STUCK", "Set to FLOAT after %d attempts", indexorRecoveryAttempts);
+            telemetry.addData("Action", "Motor floating - manual intervention may be needed");
             return;
         }
         
@@ -840,6 +843,8 @@ public class TeleOpDECODE extends LinearOpMode {
         int currentPosition = indexor.getCurrentPosition();
         int reverseTarget = currentPosition - INDEXOR_REVERSE_TICKS;
         
+        // Reset motor behavior to BRAKE for recovery attempt
+        indexor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         indexor.setTargetPosition(reverseTarget);
         indexor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
         indexor.setPower(AUTO_INDEXOR_POWER);
@@ -859,6 +864,8 @@ public class TeleOpDECODE extends LinearOpMode {
         int currentPosition = indexor.getCurrentPosition();
         
         // Set target back to original goal
+        // Reset motor behavior to BRAKE for retry attempt
+        indexor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         indexor.setTargetPosition(indexorOriginalTarget);
         indexor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
         indexor.setPower(AUTO_INDEXOR_POWER);
@@ -1213,6 +1220,8 @@ public class TeleOpDECODE extends LinearOpMode {
         int currentPosition = indexor.getCurrentPosition();
         int targetPosition = currentPosition + INDEXOR_TICKS;
         
+        // Reset motor behavior to BRAKE in case it was set to FLOAT due to stuck detection
+        indexor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         indexor.setTargetPosition(targetPosition);
         indexor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
         indexor.setPower(AUTO_INDEXOR_POWER);
