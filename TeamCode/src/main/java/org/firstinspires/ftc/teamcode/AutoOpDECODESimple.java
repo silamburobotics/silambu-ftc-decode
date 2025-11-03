@@ -52,7 +52,7 @@ public class AutoOpDECODESimple extends LinearOpMode {
     public static final double LIGHT_WHITE_POSITION = 1.0;    // Servo position for white light
     
     // Trigger servo positions
-    public static final double TRIGGER_FIRE = 0.15;     // 27 degrees (27/180 = 0.15) - FIRE POSITION (compact)
+    public static final double TRIGGER_FIRE = 0.10;     // 27 degrees (27/180 = 0.15) - FIRE POSITION (compact)
     public static final double TRIGGER_HOME = 0.76;     // 137 degrees (137/180 = 0.76) - HOME/SAFE POSITION (retracted)
     
     // Autonomous timing settings
@@ -71,17 +71,17 @@ public class AutoOpDECODESimple extends LinearOpMode {
         telemetry.addData("=== AUTONOMOUS SEQUENCE ===", "");
         telemetry.addData("1.", "Start shooter + servo + conveyor");
         telemetry.addData("2.", "Wait for max velocity");
-        telemetry.addData("3.", "Fire shot 1");
-        telemetry.addData("4.", "Move indexor + wait");
-        telemetry.addData("5.", "Fire shot 2");
-        telemetry.addData("6.", "Move indexor + wait");
-        telemetry.addData("7.", "Fire shot 3");
+        telemetry.addData("3.", "Fire shots 1 & 2 (position 1)");
+        telemetry.addData("4.", "Move indexor to position 2");
+        telemetry.addData("5.", "Fire shots 3 & 4 (position 2)");
+        telemetry.addData("6.", "Move indexor to position 3");
+        telemetry.addData("7.", "Fire shots 5 & 6 (position 3)");
         telemetry.addData("8.", "Stop shooter system");
         telemetry.addData("", "");
         telemetry.addData("Shooter Speed", "%.0f ticks/sec", SHOOTER_TARGET_VELOCITY);
         telemetry.addData("Conveyor Power", "%.0f%%", CONVEYOR_POWER * 100);
-        telemetry.addData("Shots", "3 total shots");
-        telemetry.addData("Total Time", "~15-20 seconds");
+        telemetry.addData("Shots", "6 total shots (2 per position)");
+        telemetry.addData("Total Time", "~25-30 seconds");
         telemetry.update();
         
         waitForStart();
@@ -101,31 +101,37 @@ public class AutoOpDECODESimple extends LinearOpMode {
         // Step 2: Wait for shooter to reach maximum velocity
         waitForShooterSpeed();
         
-        // Step 3: Fire first shot
+        // Step 3: Fire first two shots at initial position
         fireShot(1);
+        sleep((long)(WAIT_BETWEEN_SHOTS * 1000));
+        fireShot(2);
         
         // Step 4: Wait, move indexor, wait
         sleep((long)(WAIT_BETWEEN_SHOTS * 1000));
         moveIndexorToNextPosition();
         sleep((long)(WAIT_BETWEEN_SHOTS * 1000));
         
-        // Step 5: Fire second shot
-        fireShot(2);
+        // Step 5: Fire next two shots at second position
+        fireShot(3);
+        sleep((long)(WAIT_BETWEEN_SHOTS * 1000));
+        fireShot(4);
         
         // Step 6: Wait, move indexor, wait
         sleep((long)(WAIT_BETWEEN_SHOTS * 1000));
         moveIndexorToNextPosition();
         sleep((long)(WAIT_BETWEEN_SHOTS * 1000));
         
-        // Step 7: Fire third shot
-        fireShot(3);
+        // Step 7: Fire final two shots at third position
+        fireShot(5);
+        sleep((long)(WAIT_BETWEEN_SHOTS * 1000));
+        fireShot(6);
         
         // Step 8: Wait and stop shooter
         sleep((long)(WAIT_BETWEEN_SHOTS * 1000));
         stopShooterSystem();
         
         telemetry.addData("✅ AUTONOMOUS", "Sequence completed!");
-        telemetry.addData("🎯 Shots Fired", "3 shots");
+        telemetry.addData("🎯 Shots Fired", "6 shots total");
         telemetry.addData("⏱️ Status", "Autonomous finished");
         telemetry.update();
     }
