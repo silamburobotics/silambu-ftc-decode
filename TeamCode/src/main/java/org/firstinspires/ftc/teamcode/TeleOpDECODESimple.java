@@ -57,7 +57,10 @@ public class TeleOpDECODESimple extends LinearOpMode {
     private boolean shooterIntentionallyRunning = false;
     
     // Trigger servo management
-    private boolean triggerHeld = false; // Track if trigger is currently being held down
+    private boolean manualTriggerControl = false; // Track if trigger is under manual control
+    private ElapsedTime triggerManualTimer = new ElapsedTime(); // Timer for manual control timeout
+    private boolean triggerAutoFireSequence = false; // Track if auto fire sequence is active
+    private ElapsedTime triggerFireTimer = new ElapsedTime(); // Timer for fire sequence
     
     // AprilTag detection
     private VisionPortal visionPortal;
@@ -90,13 +93,16 @@ public class TeleOpDECODESimple extends LinearOpMode {
     
     // Speed light control settings (using servo positions for LED control)
     public static final double LIGHT_OFF_POSITION = 0.0;      // Servo position for light off
-    public static final double LIGHT_YELLOW_POSITION = 0.33;  // Servo position for yellow light (close range)
-    public static final double LIGHT_GREEN_POSITION = 0.5;    // Servo position for green light (long range)
+    public static final double LIGHT_GREEN_POSITION = 0.5;    // Servo position for green light
     public static final double LIGHT_WHITE_POSITION = 1.0;    // Servo position for white light
     
     // Trigger servo positions
     public static final double TRIGGER_FIRE = 0.15;     // 27 degrees (27/180 = 0.15) - FIRE POSITION (compact)
     public static final double TRIGGER_HOME = 0.76;     // 137 degrees (137/180 = 0.76) - HOME/SAFE POSITION (retracted)
+    
+    // Trigger management
+    public static final double MANUAL_TRIGGER_TIMEOUT = 3.0;  // Seconds before auto-management resumes
+    public static final double TRIGGER_FIRE_DURATION = 0.5;   // Seconds to stay in fire position before returning home
     
     // Stuck detection settings
     public static final double INDEXOR_STUCK_TIMEOUT = 3.0;    // seconds - time before considering indexor stuck
@@ -135,13 +141,12 @@ public class TeleOpDECODESimple extends LinearOpMode {
         telemetry.addData("=== GAMEPAD 2 (OPERATOR) ===", "");
         telemetry.addData("X Button", "Indexor + Conveyor (%d ticks)", INDEXOR_TICKS);
         telemetry.addData("Y Button", "Shooter + Servo (Distance-Adaptive)");
-        telemetry.addData("B Button", "Hold for Fire / Release for Home");
+        telemetry.addData("B Button", "Auto Fire (Fire → Home)");
         telemetry.addData("", "");
         telemetry.addData("AprilTag Target", "ID %d", TARGET_TAG_ID);
-        telemetry.addData("Close Range", "<%.0f inches = %.0f ticks/sec 🟡", CLOSE_RANGE_DISTANCE, CLOSE_RANGE_VELOCITY);
-        telemetry.addData("Long Range", "≥%.0f inches = %.0f ticks/sec 🟢", CLOSE_RANGE_DISTANCE, LONG_RANGE_VELOCITY);
-        telemetry.addData("Default (No Tag)", "%.0f ticks/sec ⚪", DEFAULT_VELOCITY);
-        telemetry.addData("Speed Light", "🟡 Yellow=Close 🟢 Green=Long ⚪ White=Medium");
+        telemetry.addData("Close Range", "<%.0f inches = %.0f ticks/sec", CLOSE_RANGE_DISTANCE, CLOSE_RANGE_VELOCITY);
+        telemetry.addData("Long Range", "≥%.0f inches = %.0f ticks/sec", CLOSE_RANGE_DISTANCE, LONG_RANGE_VELOCITY);
+        telemetry.addData("Default (No Tag)", "%.0f ticks/sec", DEFAULT_VELOCITY);
         telemetry.addData("Drive Speed", "%.0f%% max", DRIVE_SPEED_MULTIPLIER * 100);
         telemetry.addData("Strafe Speed", "%.0f%% max", STRAFE_SPEED_MULTIPLIER * 100);
         telemetry.addData("Turn Speed", "%.0f%% max", TURN_SPEED_MULTIPLIER * 100);
@@ -156,7 +161,8 @@ public class TeleOpDECODESimple extends LinearOpMode {
             handleMecanumDrive();
             handleAprilTagAlignment(); // Monitor AprilTag and adjust shooter velocity
             checkIndexorStuck();
-            handleTriggerHoldAndRelease(); // Handle hold-and-release trigger control
+            checkTriggerTimeout();
+            handleTriggerAutoFire();
             updateSpeedLight();
             updateTelemetry();
             sleep(20); // Small delay to prevent excessive CPU usage
@@ -408,8 +414,10 @@ public class TeleOpDECODESimple extends LinearOpMode {
             toggleShooter();
         }
         
-        // Handle B button on gamepad2 - Hold/Release Trigger Servo
-        handleTriggerButton(currentB2);
+        // Handle B button on gamepad2 - Toggle Trigger Servo
+        if (currentB2 && !previousB2) {
+            toggleTriggerServo();
+        }
         
         // Update previous button states for gamepad1
         previousA = currentA;
@@ -492,13 +500,10 @@ public class TeleOpDECODESimple extends LinearOpMode {
             indexorStuckDetectionActive = false;
             indexor.setPower(0);
             
-            // Set indexor to FLOAT mode so trigger can push balls through freely
-            indexor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
-            
             // Stop conveyor when indexor positioning is complete
             conveyor.setPower(0);
             
-            telemetry.addData("✅ INDEXOR", "Position reached - FLOATING for free trigger movement");
+            telemetry.addData("✅ INDEXOR", "Position reached");
             telemetry.addData("✅ CONVEYOR", "Stopped");
             return;
         }
@@ -579,24 +584,15 @@ public class TeleOpDECODESimple extends LinearOpMode {
             return;
         }
         
-        // Shooter is on - check speed and range
+        // Shooter is on - check speed
         double currentVelocity = shooter.getVelocity();
         double speedPercentage = currentVelocity / SHOOTER_TARGET_VELOCITY;
         
         if (currentVelocity > 50 && speedPercentage > SHOOTER_SPEED_THRESHOLD) {
-            // Speed is good - set color based on range
-            if (SHOOTER_TARGET_VELOCITY == CLOSE_RANGE_VELOCITY) {
-                // Close range - yellow light
-                speedLight.setPosition(LIGHT_YELLOW_POSITION);
-            } else if (SHOOTER_TARGET_VELOCITY == LONG_RANGE_VELOCITY) {
-                // Long range - green light
-                speedLight.setPosition(LIGHT_GREEN_POSITION);
-            } else {
-                // Default velocity - white light
-                speedLight.setPosition(LIGHT_WHITE_POSITION);
-            }
+            // Speed is good - green light
+            speedLight.setPosition(LIGHT_GREEN_POSITION);
         } else if (currentVelocity > 50 && speedPercentage > 0.7) {
-            // Speed is medium - white light regardless of range
+            // Speed is medium - white light
             speedLight.setPosition(LIGHT_WHITE_POSITION);
         } else {
             // Speed is low - off (no light)
@@ -604,28 +600,58 @@ public class TeleOpDECODESimple extends LinearOpMode {
         }
     }
     
-    private void handleTriggerButton(boolean buttonPressed) {
+    private void toggleTriggerServo() {
         // Check if intake is running - safety first!
         boolean intakeRunning = Math.abs(intake.getPower()) > 0.1;
+        if (intakeRunning) {
+            telemetry.addData("🚫 TRIGGER BLOCKED", "Cannot move trigger while intake is running");
+            telemetry.addData("💡 Safety Tip", "Stop intake (Gamepad1 A button) before using trigger");
+            telemetry.update();
+            return;
+        }
         
-        if (buttonPressed && !intakeRunning) {
-            // Button is held down and it's safe - move to FIRE position
-            if (!triggerHeld) {
-                triggerServo.setPosition(TRIGGER_FIRE);
-                triggerHeld = true;
-            }
-        } else {
-            // Button released or intake running - move to HOME position
-            if (triggerHeld) {
-                triggerServo.setPosition(TRIGGER_HOME);
-                triggerHeld = false;
+        // Start auto fire sequence
+        triggerAutoFireSequence = true;
+        triggerFireTimer.reset();
+        
+        // Move to FIRE position
+        triggerServo.setPosition(TRIGGER_FIRE);
+        telemetry.addData("🎯 AUTO FIRE", "Moving to FIRE position (27°)");
+        telemetry.addData("⏱️ Timer", "Will return to HOME in %.1fs", TRIGGER_FIRE_DURATION);
+        telemetry.update();
+    }
+    
+    private void checkTriggerTimeout() {
+        // Check if manual trigger control has timed out
+        if (manualTriggerControl && triggerManualTimer.seconds() > MANUAL_TRIGGER_TIMEOUT) {
+            manualTriggerControl = false;
+            
+            // Get current trigger position
+            double currentTriggerPosition = triggerServo.getPosition();
+            boolean triggerInFirePosition = Math.abs(currentTriggerPosition - TRIGGER_FIRE) < 0.05;
+            
+            // If trigger is in fire position and intake is not running, move to home for safety
+            boolean intakeRunning = Math.abs(intake.getPower()) > 0.1;
+            if (triggerInFirePosition && !intakeRunning) {
+                // Check if it's safe to move trigger to home position
+                if (Math.abs(currentTriggerPosition - TRIGGER_HOME) > 0.05) {
+                    triggerServo.setPosition(TRIGGER_HOME);
+                }
             }
         }
     }
     
-    private void handleTriggerHoldAndRelease() {
-        // This function handles any additional trigger state management if needed
-        // Currently, all logic is handled in handleTriggerButton()
+    private void handleTriggerAutoFire() {
+        // Handle automatic fire sequence
+        if (triggerAutoFireSequence && triggerFireTimer.seconds() >= TRIGGER_FIRE_DURATION) {
+            // Time to return to home position
+            triggerServo.setPosition(TRIGGER_HOME);
+            triggerAutoFireSequence = false;
+            
+            telemetry.addData("🏠 AUTO RETURN", "Trigger returned to HOME position (137°)");
+            telemetry.addData("✅ COMPLETE", "Fire sequence finished");
+            telemetry.update();
+        }
     }
     
     private void handleMecanumDrive() {
@@ -686,20 +712,7 @@ public class TeleOpDECODESimple extends LinearOpMode {
             telemetry.addData("Target Velocity", "%.0f ticks/sec", SHOOTER_TARGET_VELOCITY);
             telemetry.addData("Current Velocity", "%.0f ticks/sec", shooter.getVelocity());
             telemetry.addData("Shooter Servo", "%.2f", shooterServo.getPower());
-            
-            // Show speed light status with color indication
-            double lightPosition = speedLight.getPosition();
-            String lightStatus;
-            if (Math.abs(lightPosition - LIGHT_YELLOW_POSITION) < 0.05) {
-                lightStatus = "🟡 YELLOW (Close Range Ready)";
-            } else if (Math.abs(lightPosition - LIGHT_GREEN_POSITION) < 0.05) {
-                lightStatus = "🟢 GREEN (Long Range Ready)";
-            } else if (Math.abs(lightPosition - LIGHT_WHITE_POSITION) < 0.05) {
-                lightStatus = "⚪ WHITE (Medium Speed)";
-            } else {
-                lightStatus = "⚫ OFF (Low Speed)";
-            }
-            telemetry.addData("Speed Light", "%s (%.2f)", lightStatus, lightPosition);
+            telemetry.addData("Speed Light", "%.2f", speedLight.getPosition());
         } else {
             telemetry.addData("Shooter", "STOPPED");
         }
@@ -741,23 +754,26 @@ public class TeleOpDECODESimple extends LinearOpMode {
         // Show trigger status
         double currentTriggerPosition = triggerServo.getPosition();
         boolean triggerInFirePosition = Math.abs(currentTriggerPosition - TRIGGER_FIRE) < 0.05;
-        boolean intakeRunning = Math.abs(intake.getPower()) > 0.1;
-        
-        if (intakeRunning && gamepad2.b) {
-            telemetry.addData("Trigger", "🚫 BLOCKED - Intake running");
-            telemetry.addData("Safety", "Stop intake first");
-        } else if (triggerHeld && triggerInFirePosition) {
-            telemetry.addData("Trigger", "🎯 FIRE (%.2f) - Button HELD", currentTriggerPosition);
-        } else if (triggerInFirePosition) {
-            telemetry.addData("Trigger", "🎯 FIRE (%.2f)", currentTriggerPosition);
+        if (triggerInFirePosition) {
+            telemetry.addData("Trigger Position", "🎯 FIRE (%.2f)", currentTriggerPosition);
         } else {
-            telemetry.addData("Trigger", "🏠 HOME (%.2f)", currentTriggerPosition);
+            telemetry.addData("Trigger Position", "🏠 HOME (%.2f)", currentTriggerPosition);
         }
         
-        if (gamepad2.b) {
-            telemetry.addData("B Button", "PRESSED - %s", intakeRunning ? "BLOCKED" : "FIRING");
-        } else {
-            telemetry.addData("B Button", "Released");
+        if (triggerAutoFireSequence) {
+            double timeLeft = TRIGGER_FIRE_DURATION - triggerFireTimer.seconds();
+            if (timeLeft > 0) {
+                telemetry.addData("🎯 Auto Fire", "Returning to HOME in %.1fs", timeLeft);
+            } else {
+                telemetry.addData("🎯 Auto Fire", "Completing sequence...");
+            }
+        } else if (manualTriggerControl) {
+            double timeLeft = MANUAL_TRIGGER_TIMEOUT - triggerManualTimer.seconds();
+            if (timeLeft > 0) {
+                telemetry.addData("Manual Trigger", "%.1fs remaining", timeLeft);
+            } else {
+                telemetry.addData("Manual Trigger", "TIMEOUT - Auto mode resumed");
+            }
         }
         
         // Show stuck detection status
@@ -772,12 +788,7 @@ public class TeleOpDECODESimple extends LinearOpMode {
             telemetry.addData("Stuck Detection", "ACTIVE (%.1fs)", indexorTimer.seconds());
             telemetry.addData("Position Change", "%d ticks", posChange);
         } else if (indexor.getZeroPowerBehavior() == DcMotor.ZeroPowerBehavior.FLOAT) {
-            // Check if it's floating due to reaching position or being stuck
-            if (Math.abs(indexor.getPower()) < 0.01 && !indexorStuckDetectionActive) {
-                telemetry.addData("Indexor Status", "🎯 FLOATING (Ready for trigger movement)");
-            } else {
-                telemetry.addData("Indexor Status", "⚠️ FLOATING (Stuck detected)");
-            }
+            telemetry.addData("Indexor Status", "FLOATING (stuck detected)");
         } else {
             telemetry.addData("Stuck Detection", "INACTIVE");
         }
