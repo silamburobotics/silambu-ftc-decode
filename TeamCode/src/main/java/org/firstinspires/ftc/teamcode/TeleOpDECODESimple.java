@@ -56,10 +56,14 @@ public class TeleOpDECODESimple extends LinearOpMode {
     // Indexor position control variables
     private boolean indexorRunningToPosition = false;
     
+    // Manual indexor control variables
+    private boolean manualIndexorControl = false;             // Track if indexor is under manual control
+    
     // Motor power settings
     public static final double INTAKE_POWER = 0.8;
     public static final double CONVEYOR_POWER = 1.0;
     public static final double AUTO_INDEXOR_POWER = 0.1;      // Power for automatic indexor movement
+    public static final double MANUAL_INDEXOR_POWER = 0.3;    // Power for manual indexor control via joystick
     public static final double SHOOTER_POWER = 1.0;
     public static final double SHOOTER_SERVO_POWER = 1.0;     // Positive for forward direction
     
@@ -93,6 +97,9 @@ public class TeleOpDECODESimple extends LinearOpMode {
     public static final double STRAFE_SPEED_MULTIPLIER = 0.8; // Max strafe speed (0.0 to 1.0)
     public static final double TURN_SPEED_MULTIPLIER = 0.6;   // Max turn speed (0.0 to 1.0)
     
+    // Manual control settings
+    public static final double JOYSTICK_DEADZONE = 0.1;       // Deadzone for joystick input
+    
     @Override
     public void runOpMode() {
         // Initialize motors
@@ -120,6 +127,7 @@ public class TeleOpDECODESimple extends LinearOpMode {
         // Run until the end of the match (driver presses STOP)
         while (opModeIsActive()) {
             handleControllerInputs();
+            handleManualIndexorControl();
             handleMecanumDrive();
             checkIndexorStuck();
             checkTriggerTimeout();
@@ -272,6 +280,14 @@ public class TeleOpDECODESimple extends LinearOpMode {
     }
     
     private void runIndexorToPosition() {
+        // Check if manual control is active - don't allow automatic positioning
+        if (manualIndexorControl) {
+            telemetry.addData("🎮 X Button Blocked", "Manual joystick control is active");
+            telemetry.addData("💡 Tip", "Release left joystick to use X button");
+            telemetry.update();
+            return;
+        }
+        
         // Stop any continuous power mode first
         indexor.setPower(0);
         
@@ -562,5 +578,48 @@ public class TeleOpDECODESimple extends LinearOpMode {
         telemetry.addData("Back Right", "%.2f", rightBack.getPower());
         
         telemetry.update();
+    }
+    
+    private void handleManualIndexorControl() {
+        // Get gamepad2 left joystick Y value for manual indexor control
+        double joystickY = -gamepad2.left_stick_y; // Negative for intuitive control (up = forward)
+        
+        // Apply deadzone
+        if (Math.abs(joystickY) < JOYSTICK_DEADZONE) {
+            joystickY = 0.0;
+        }
+        
+        // Check if joystick is being actively used
+        boolean joystickActive = Math.abs(joystickY) > 0.0;
+        
+        if (joystickActive) {
+            // Joystick is active - switch to manual control
+            if (!manualIndexorControl) {
+                // Stop any automated indexor movement
+                if (indexorRunningToPosition) {
+                    indexor.setPower(0);
+                    indexor.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
+                    indexorRunningToPosition = false;
+                    telemetry.addData("Indexor", "Manual control override");
+                }
+                manualIndexorControl = true;
+            }
+            
+            // Set manual indexor power (slow movement)
+            double indexorPower = joystickY * MANUAL_INDEXOR_POWER;
+            indexor.setPower(indexorPower);
+            
+            // Add telemetry for manual control
+            telemetry.addData("🎮 Manual Indexor", "Active - Left Joystick");
+            telemetry.addData("Joystick Y", "%.3f", joystickY);
+            telemetry.addData("Indexor Power", "%.2f (%.0f%%)", indexorPower, indexorPower * 100);
+            telemetry.addData("Control Mode", "MANUAL - Slow Movement");
+            
+        } else if (manualIndexorControl) {
+            // Joystick released - stop indexor and return to automatic mode
+            indexor.setPower(0);
+            manualIndexorControl = false;
+            telemetry.addData("🎮 Manual Indexor", "Released - Auto Mode");
+        }
     }
 }
