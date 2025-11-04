@@ -10,20 +10,6 @@ import com.qualcomm.robotcore.hardware.CRServo;
 import com.qualcomm.robotcore.hardware.Servo;
 import com.qualcomm.robotcore.util.ElapsedTime;
 
-import org.firstinspires.ftc.robotcore.external.hardware.camera.WebcamName;
-import org.firstinspires.ftc.robotcore.external.hardware.camera.controls.ExposureControl;
-import org.firstinspires.ftc.robotcore.external.hardware.camera.controls.GainControl;
-import org.firstinspires.ftc.robotcore.external.hardware.camera.controls.FocusControl;
-import org.firstinspires.ftc.robotcore.external.hardware.camera.controls.WhiteBalanceControl;
-import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
-import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
-import org.firstinspires.ftc.vision.VisionPortal;
-import org.firstinspires.ftc.vision.apriltag.AprilTagDetection;
-import org.firstinspires.ftc.vision.apriltag.AprilTagProcessor;
-
-import java.util.List;
-import java.util.concurrent.TimeUnit;
-
 @Config
 @TeleOp(name = "TeleOpDECODESimple", group = "TeleOp")
 public class TeleOpDECODESimple extends LinearOpMode {
@@ -61,12 +47,6 @@ public class TeleOpDECODESimple extends LinearOpMode {
     private ElapsedTime triggerManualTimer = new ElapsedTime(); // Timer for manual control timeout
     private boolean triggerAutoFireSequence = false; // Track if auto fire sequence is active
     private ElapsedTime triggerFireTimer = new ElapsedTime(); // Timer for fire sequence
-    
-    // AprilTag detection
-    private VisionPortal visionPortal;
-    private AprilTagProcessor aprilTag;
-    private boolean isAlignedToTag = false; // Track if robot is aligned to AprilTag
-    private boolean aprilTagDistanceAvailable = false; // Track if AprilTag distance is available
     
     // Indexor stuck detection variables
     private ElapsedTime indexorTimer = new ElapsedTime();
@@ -113,40 +93,22 @@ public class TeleOpDECODESimple extends LinearOpMode {
     public static final double STRAFE_SPEED_MULTIPLIER = 0.8; // Max strafe speed (0.0 to 1.0)
     public static final double TURN_SPEED_MULTIPLIER = 0.6;   // Max turn speed (0.0 to 1.0)
     
-    // AprilTag detection settings
-    public static final int TARGET_TAG_ID = 20; // Blue AprilTag ID
-    public static final double ALIGNMENT_TOLERANCE = 5.0; // degrees
-    public static final double MIN_TAG_AREA = 100.0; // Minimum tag area for reliable detection
-    
-    // Distance-based shooter velocity settings
-    public static final double CLOSE_RANGE_DISTANCE = 90.0;   // inches - threshold for close vs long range
-    public static final double CLOSE_RANGE_VELOCITY = 1250;   // ticks/sec for close range shooting
-    public static final double LONG_RANGE_VELOCITY = 1600;    // ticks/sec for long range shooting
-    public static final double DEFAULT_VELOCITY = 1250;       // ticks/sec when no AprilTag detected
-    
     @Override
     public void runOpMode() {
         // Initialize motors
         initializeMotors();
         
-        // Initialize AprilTag detection
-        initializeAprilTag();
-        
         // Wait for the game to start (driver presses PLAY)
-        telemetry.addData("Status", "DECODE Simple + AprilTag - Initialized");
+        telemetry.addData("Status", "DECODE Simple + Intake - Initialized");
         telemetry.addData("=== GAMEPAD 1 (DRIVER) ===", "");
         telemetry.addData("A Button", "Intake + Conveyor + Indexor");
         telemetry.addData("Left Stick", "Drive/Strafe");
         telemetry.addData("Right Stick X", "Turn");
         telemetry.addData("=== GAMEPAD 2 (OPERATOR) ===", "");
         telemetry.addData("X Button", "Indexor + Conveyor (%d ticks)", INDEXOR_TICKS);
-        telemetry.addData("Y Button", "Shooter + Servo (Distance-Adaptive)");
+        telemetry.addData("Y Button", "Shooter + Shooter Servo");
         telemetry.addData("B Button", "Auto Fire (Fire → Home)");
         telemetry.addData("", "");
-        telemetry.addData("AprilTag Target", "ID %d", TARGET_TAG_ID);
-        telemetry.addData("Close Range", "<%.0f inches = %.0f ticks/sec", CLOSE_RANGE_DISTANCE, CLOSE_RANGE_VELOCITY);
-        telemetry.addData("Long Range", "≥%.0f inches = %.0f ticks/sec", CLOSE_RANGE_DISTANCE, LONG_RANGE_VELOCITY);
-        telemetry.addData("Default (No Tag)", "%.0f ticks/sec", DEFAULT_VELOCITY);
         telemetry.addData("Drive Speed", "%.0f%% max", DRIVE_SPEED_MULTIPLIER * 100);
         telemetry.addData("Strafe Speed", "%.0f%% max", STRAFE_SPEED_MULTIPLIER * 100);
         telemetry.addData("Turn Speed", "%.0f%% max", TURN_SPEED_MULTIPLIER * 100);
@@ -159,18 +121,12 @@ public class TeleOpDECODESimple extends LinearOpMode {
         while (opModeIsActive()) {
             handleControllerInputs();
             handleMecanumDrive();
-            handleAprilTagAlignment(); // Monitor AprilTag and adjust shooter velocity
             checkIndexorStuck();
             checkTriggerTimeout();
             handleTriggerAutoFire();
             updateSpeedLight();
             updateTelemetry();
             sleep(20); // Small delay to prevent excessive CPU usage
-        }
-        
-        // Cleanup: Close vision portal to free resources
-        if (visionPortal != null) {
-            visionPortal.close();
         }
     }
     
@@ -243,151 +199,6 @@ public class TeleOpDECODESimple extends LinearOpMode {
         
         // Set indexor to use encoder
         indexor.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
-    }
-    
-    private void initializeAprilTag() {
-        // Create the AprilTag processor
-        aprilTag = new AprilTagProcessor.Builder()
-                .setTagFamily(AprilTagProcessor.TagFamily.TAG_36h11)
-                .setOutputUnits(DistanceUnit.INCH, AngleUnit.DEGREES)
-                // Arducam OV9281 optimized lens intrinsics for 1280x720 resolution
-                .setLensIntrinsics(1156.544, 1156.544, 640.0, 360.0) // fx, fy, cx, cy for 1280x720
-                .build();
-
-        // Create the vision portal with Arducam OV9281 specific settings
-        VisionPortal.Builder builder = new VisionPortal.Builder();
-        
-        // Set the camera - Change this to match your hardware config name
-        builder.setCamera(hardwareMap.get(WebcamName.class, "Webcam 1")); // Update this name if different
-        
-        // Arducam OV9281 optimal resolution settings
-        builder.setCameraResolution(new android.util.Size(1280, 720)); // Best for AprilTag detection
-        
-        // Arducam OV9281 specific settings for optimal performance
-        builder.enableLiveView(true); // Enable for debugging, disable for competition performance
-        builder.setAutoStopLiveView(false); // Keep live view running
-        
-        // Set AprilTag processor
-        builder.addProcessor(aprilTag);
-        
-        // Build the Vision Portal
-        visionPortal = builder.build();
-        
-        // Configure Arducam OV9281 camera settings for optimal AprilTag detection
-        configureArducamOV9281();
-        
-        telemetry.addData("Camera", "Arducam OV9281 Global Shutter");
-        telemetry.addData("Resolution", "1280x720 (optimal for AprilTags)");
-        telemetry.addData("AprilTag Vision", "Initialized with TAG_36h11 family");
-        telemetry.addData("Target Tag", "Looking for ID %d", TARGET_TAG_ID);
-        telemetry.addData("✅ Global Shutter", "No motion blur - perfect for moving robot");
-        telemetry.update();
-    }
-    
-    private void configureArducamOV9281() {
-        // Wait for camera to be ready
-        while (visionPortal.getCameraState() != VisionPortal.CameraState.STREAMING) {
-            telemetry.addData("Camera", "Waiting for Arducam OV9281 to start streaming...");
-            telemetry.update();
-            sleep(50);
-        }
-        
-        // Get camera control for Arducam OV9281 specific settings
-        ExposureControl exposureControl = visionPortal.getCameraControl(ExposureControl.class);
-        GainControl gainControl = visionPortal.getCameraControl(GainControl.class);
-        FocusControl focusControl = visionPortal.getCameraControl(FocusControl.class);
-        WhiteBalanceControl whiteBalanceControl = visionPortal.getCameraControl(WhiteBalanceControl.class);
-        
-        // Configure optimal settings for AprilTag detection with OV9281
-        if (exposureControl != null) {
-            exposureControl.setMode(ExposureControl.Mode.Manual);
-            exposureControl.setExposure(15, TimeUnit.MILLISECONDS); // Adjust based on your lighting
-            telemetry.addData("Exposure", "Set to 15ms (manual mode)");
-        }
-        
-        if (gainControl != null) {
-            gainControl.setGain(50); // Range typically 0-255, adjust as needed
-            telemetry.addData("Gain", "Set to 50");
-        }
-        
-        if (focusControl != null) {
-            focusControl.setMode(FocusControl.Mode.Fixed);
-            focusControl.setFocusLength(240.0); // Focus at distance for tags
-            telemetry.addData("Focus", "Set to fixed 240.0");
-        }
-        
-        if (whiteBalanceControl != null) {
-            try {
-                whiteBalanceControl.setWhiteBalanceTemperature(4000); // Indoor lighting (~4000K)
-                telemetry.addData("White Balance", "Set to 4000K");
-            } catch (Exception e) {
-                telemetry.addData("White Balance", "Auto mode (manual not supported)");
-            }
-        }
-        
-        telemetry.addData("✅ Arducam OV9281", "Configured for optimal AprilTag detection");
-        telemetry.addData("Camera State", visionPortal.getCameraState());
-        telemetry.update();
-        
-        // Brief pause to let settings take effect
-        sleep(500);
-    }
-    
-    private void handleAprilTagAlignment() {
-        List<AprilTagDetection> currentDetections = aprilTag.getDetections();
-        
-        // Reset alignment status
-        isAlignedToTag = false;
-        aprilTagDistanceAvailable = false;
-        
-        // Look for the target tag
-        for (AprilTagDetection detection : currentDetections) {
-            if (detection != null && detection.ftcPose != null && detection.id == TARGET_TAG_ID) {
-                // AprilTag found with valid pose data - distance is available!
-                aprilTagDistanceAvailable = true;
-                
-                // Get distance and pose information
-                double xOffset = detection.ftcPose.x;
-                double yOffset = detection.ftcPose.y;
-                double headingError = detection.ftcPose.yaw;
-                double distance = detection.ftcPose.range; // Distance in inches
-                
-                // Determine distance category and set shooter velocity
-                String distanceCategory;
-                String distanceAdvice;
-                if (distance < CLOSE_RANGE_DISTANCE) {
-                    distanceCategory = "🔵 CLOSE RANGE";
-                    distanceAdvice = "Within optimal range";
-                    SHOOTER_TARGET_VELOCITY = CLOSE_RANGE_VELOCITY;
-                } else {
-                    distanceCategory = "🔴 LONG RANGE";
-                    distanceAdvice = "Beyond " + (int)CLOSE_RANGE_DISTANCE + " inches";
-                    SHOOTER_TARGET_VELOCITY = LONG_RANGE_VELOCITY;
-                }
-                
-                // Update shooter velocity if shooter is running
-                if (shooterIntentionallyRunning && shooter != null) {
-                    shooter.setVelocity(SHOOTER_TARGET_VELOCITY);
-                }
-                
-                // Check if we're aligned within tolerance
-                boolean xAligned = Math.abs(xOffset) < ALIGNMENT_TOLERANCE;
-                boolean yAligned = Math.abs(yOffset) < ALIGNMENT_TOLERANCE;
-                boolean headingAligned = Math.abs(headingError) < ALIGNMENT_TOLERANCE;
-                
-                isAlignedToTag = xAligned && yAligned && headingAligned;
-                
-                return; // Found our tag, no need to check others
-            }
-        }
-        
-        // If we get here, the target tag wasn't found - use default velocity
-        SHOOTER_TARGET_VELOCITY = DEFAULT_VELOCITY;
-        
-        // Update shooter velocity if shooter is running
-        if (shooterIntentionallyRunning && shooter != null) {
-            shooter.setVelocity(SHOOTER_TARGET_VELOCITY);
-        }
     }
     
     private void handleControllerInputs() {
@@ -550,29 +361,12 @@ public class TeleOpDECODESimple extends LinearOpMode {
             
             telemetry.addData("Shooter System", "STOPPED");
         } else {
-            // Ensure we have the latest AprilTag-based velocity
-            handleAprilTagAlignment();
-            
-            // Start shooter with distance-adaptive velocity control and servo
+            // Start shooter with velocity control and servo
             shooter.setVelocity(SHOOTER_TARGET_VELOCITY);
             shooterServo.setPower(SHOOTER_SERVO_POWER);
             shooterIntentionallyRunning = true;
             
-            // Provide detailed feedback about velocity selection
-            String velocityReason;
-            if (aprilTagDistanceAvailable) {
-                if (SHOOTER_TARGET_VELOCITY == CLOSE_RANGE_VELOCITY) {
-                    velocityReason = String.format("🔵 CLOSE RANGE (%.0f ticks/sec)", CLOSE_RANGE_VELOCITY);
-                } else {
-                    velocityReason = String.format("🔴 LONG RANGE (%.0f ticks/sec)", LONG_RANGE_VELOCITY);
-                }
-            } else {
-                velocityReason = String.format("🎯 DEFAULT (%.0f ticks/sec) - No AprilTag", DEFAULT_VELOCITY);
-            }
-            
-            telemetry.addData("Shooter System", "RUNNING - Distance Adaptive");
-            telemetry.addData("Velocity Mode", velocityReason);
-            telemetry.addData("AprilTag Target", "ID %d %s", TARGET_TAG_ID, aprilTagDistanceAvailable ? "DETECTED" : "NOT FOUND");
+            telemetry.addData("Shooter System", "RUNNING at %.0f ticks/sec", SHOOTER_TARGET_VELOCITY);
         }
         telemetry.update();
     }
@@ -715,39 +509,6 @@ public class TeleOpDECODESimple extends LinearOpMode {
             telemetry.addData("Speed Light", "%.2f", speedLight.getPosition());
         } else {
             telemetry.addData("Shooter", "STOPPED");
-        }
-        telemetry.addData("", "");
-        
-        // Show AprilTag detection and distance-based velocity
-        List<AprilTagDetection> currentDetections = aprilTag.getDetections();
-        telemetry.addData("👁️ Vision Status", "%d tags detected", currentDetections.size());
-        
-        if (aprilTagDistanceAvailable) {
-            // Find and display our target tag information
-            for (AprilTagDetection detection : currentDetections) {
-                if (detection != null && detection.ftcPose != null && detection.id == TARGET_TAG_ID) {
-                    double distance = detection.ftcPose.range;
-                    String distanceCategory = distance < CLOSE_RANGE_DISTANCE ? "🔵 CLOSE" : "🔴 LONG";
-                    double selectedVelocity = distance < CLOSE_RANGE_DISTANCE ? CLOSE_RANGE_VELOCITY : LONG_RANGE_VELOCITY;
-                    
-                    telemetry.addData("🎯 AprilTag", "ID %d DETECTED", TARGET_TAG_ID);
-                    telemetry.addData("📏 Distance", "%.1f inches (%s RANGE)", distance, distanceCategory.substring(2));
-                    telemetry.addData("🚀 Auto Velocity", "%.0f ticks/sec", selectedVelocity);
-                    telemetry.addData("🧭 Position", "X: %.1f, Y: %.1f", detection.ftcPose.x, detection.ftcPose.y);
-                    telemetry.addData("📐 Heading", "%.1f degrees", detection.ftcPose.yaw);
-                    break;
-                }
-            }
-        } else {
-            telemetry.addData("🔍 AprilTag", "Searching for ID %d...", TARGET_TAG_ID);
-            telemetry.addData("🎯 Default Mode", "%.0f ticks/sec (No tag)", DEFAULT_VELOCITY);
-            
-            // Show any visible tags for debugging
-            for (AprilTagDetection detection : currentDetections) {
-                if (detection != null) {
-                    telemetry.addData("👀 Visible Tag", "ID %d", detection.id);
-                }
-            }
         }
         telemetry.addData("", "");
         
