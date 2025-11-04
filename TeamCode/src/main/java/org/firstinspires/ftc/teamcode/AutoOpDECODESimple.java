@@ -72,16 +72,16 @@ public class AutoOpDECODESimple extends LinearOpMode {
         telemetry.addData("1.", "Start shooter + servo + conveyor");
         telemetry.addData("2.", "Wait for max velocity");
         telemetry.addData("3.", "Fire shot 1");
-        telemetry.addData("4.", "Move indexor + wait");
+        telemetry.addData("4.", "Move indexor + wait for velocity");
         telemetry.addData("5.", "Fire shot 2");
-        telemetry.addData("6.", "Move indexor + wait");
+        telemetry.addData("6.", "Move indexor + wait for velocity");
         telemetry.addData("7.", "Fire shot 3");
         telemetry.addData("8.", "Stop shooter system");
         telemetry.addData("", "");
         telemetry.addData("Shooter Speed", "%.0f ticks/sec", SHOOTER_TARGET_VELOCITY);
         telemetry.addData("Conveyor Power", "%.0f%%", CONVEYOR_POWER * 100);
         telemetry.addData("Shots", "3 total shots");
-        telemetry.addData("Total Time", "~15-20 seconds");
+        telemetry.addData("Total Time", "~10-15 seconds (velocity-optimized)");
         telemetry.update();
         
         waitForStart();
@@ -104,30 +104,21 @@ public class AutoOpDECODESimple extends LinearOpMode {
         // Step 3: Fire first shot
         fireShot(1);
         
-        // Step 4: Wait, move indexor, wait
-        telemetry.addData("⏳ SEQUENCE", "Waiting between shots - velocity may drop");
-        telemetry.addData("⚡ Current Speed", "%.0f ticks/sec", shooter.getVelocity());
-        telemetry.update();
-        sleep((long)(WAIT_BETWEEN_SHOTS * 1000));
+        // Step 4: Move indexor and wait for shooter speed
         moveIndexorToNextPosition();
-        sleep((long)(WAIT_BETWEEN_SHOTS * 1000));
+        waitForShooterSpeed();
         
         // Step 5: Fire second shot (with velocity check)
         fireShot(2);
         
-        // Step 6: Wait, move indexor, wait
-        telemetry.addData("⏳ SEQUENCE", "Waiting between shots - velocity may drop");
-        telemetry.addData("⚡ Current Speed", "%.0f ticks/sec", shooter.getVelocity());
-        telemetry.update();
-        sleep((long)(WAIT_BETWEEN_SHOTS * 1000));
+        // Step 6: Move indexor and wait for shooter speed
         moveIndexorToNextPosition();
-        sleep((long)(WAIT_BETWEEN_SHOTS * 1000));
+        waitForShooterSpeed();
         
         // Step 7: Fire third shot (with velocity check)
         fireShot(3);
         
-        // Step 8: Wait and stop shooter
-        sleep((long)(WAIT_BETWEEN_SHOTS * 1000));
+        // Step 8: Stop shooter
         stopShooterSystem();
         
         telemetry.addData("✅ AUTONOMOUS", "Sequence completed!");
