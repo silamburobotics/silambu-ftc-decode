@@ -64,7 +64,6 @@ public class TeleOpDECODESimple extends LinearOpMode {
     private AprilTagProcessor aprilTag;
     private boolean isAlignedToTag = false; // Track if robot is aligned to AprilTag
     private boolean aprilTagDistanceAvailable = false; // Track if AprilTag distance is available
-    private int currentDetectedTagId = -1; // Track which tag is currently detected (20 or 24)
     
     // Indexor stuck detection variables
     private ElapsedTime indexorTimer = new ElapsedTime();
@@ -109,8 +108,7 @@ public class TeleOpDECODESimple extends LinearOpMode {
     public static final double TURN_SPEED_MULTIPLIER = 0.6;   // Max turn speed (0.0 to 1.0)
     
     // AprilTag detection settings
-    public static final int BLUE_TAG_ID = 20; // Blue AprilTag ID
-    public static final int RED_TAG_ID = 24; // Red AprilTag ID
+    public static final int TARGET_TAG_ID = 20; // Blue AprilTag ID
     public static final double ALIGNMENT_TOLERANCE = 5.0; // degrees
     public static final double MIN_TAG_AREA = 100.0; // Minimum tag area for reliable detection
     
@@ -139,7 +137,7 @@ public class TeleOpDECODESimple extends LinearOpMode {
         telemetry.addData("Y Button", "Shooter + Servo (Distance-Adaptive)");
         telemetry.addData("B Button", "Hold for Fire / Release for Home");
         telemetry.addData("", "");
-        telemetry.addData("AprilTag Targets", "🔵 Blue ID %d | 🔴 Red ID %d", BLUE_TAG_ID, RED_TAG_ID);
+        telemetry.addData("AprilTag Target", "ID %d", TARGET_TAG_ID);
         telemetry.addData("Close Range", "<%.0f inches = %.0f ticks/sec 🟡", CLOSE_RANGE_DISTANCE, CLOSE_RANGE_VELOCITY);
         telemetry.addData("Long Range", "≥%.0f inches = %.0f ticks/sec 🟢", CLOSE_RANGE_DISTANCE, LONG_RANGE_VELOCITY);
         telemetry.addData("Default (No Tag)", "%.0f ticks/sec ⚪", DEFAULT_VELOCITY);
@@ -275,7 +273,7 @@ public class TeleOpDECODESimple extends LinearOpMode {
         telemetry.addData("Camera", "Arducam OV9281 Global Shutter");
         telemetry.addData("Resolution", "1280x720 (optimal for AprilTags)");
         telemetry.addData("AprilTag Vision", "Initialized with TAG_36h11 family");
-        telemetry.addData("Target Tags", "🔵 Blue ID %d | 🔴 Red ID %d", BLUE_TAG_ID, RED_TAG_ID);
+        telemetry.addData("Target Tag", "Looking for ID %d", TARGET_TAG_ID);
         telemetry.addData("✅ Global Shutter", "No motion blur - perfect for moving robot");
         telemetry.update();
     }
@@ -335,15 +333,12 @@ public class TeleOpDECODESimple extends LinearOpMode {
         // Reset alignment status
         isAlignedToTag = false;
         aprilTagDistanceAvailable = false;
-        currentDetectedTagId = -1;
         
-        // Look for either blue (20) or red (24) target tags
+        // Look for the target tag
         for (AprilTagDetection detection : currentDetections) {
-            if (detection != null && detection.ftcPose != null && 
-                (detection.id == BLUE_TAG_ID || detection.id == RED_TAG_ID)) {
-                // Valid target tag found with pose data - distance is available!
+            if (detection != null && detection.ftcPose != null && detection.id == TARGET_TAG_ID) {
+                // AprilTag found with valid pose data - distance is available!
                 aprilTagDistanceAvailable = true;
-                currentDetectedTagId = detection.id;
                 
                 // Get distance and pose information
                 double xOffset = detection.ftcPose.x;
@@ -572,12 +567,7 @@ public class TeleOpDECODESimple extends LinearOpMode {
             
             telemetry.addData("Shooter System", "RUNNING - Distance Adaptive");
             telemetry.addData("Velocity Mode", velocityReason);
-            if (aprilTagDistanceAvailable) {
-                String tagColor = (currentDetectedTagId == BLUE_TAG_ID) ? "🔵 Blue" : "🔴 Red";
-                telemetry.addData("AprilTag Detected", "%s ID %d", tagColor, currentDetectedTagId);
-            } else {
-                telemetry.addData("AprilTag Search", "Looking for 🔵 Blue %d | 🔴 Red %d", BLUE_TAG_ID, RED_TAG_ID);
-            }
+            telemetry.addData("AprilTag Target", "ID %d %s", TARGET_TAG_ID, aprilTagDistanceAvailable ? "DETECTED" : "NOT FOUND");
         }
         telemetry.update();
     }
@@ -720,16 +710,14 @@ public class TeleOpDECODESimple extends LinearOpMode {
         telemetry.addData("👁️ Vision Status", "%d tags detected", currentDetections.size());
         
         if (aprilTagDistanceAvailable) {
-            // Find and display our detected tag information
+            // Find and display our target tag information
             for (AprilTagDetection detection : currentDetections) {
-                if (detection != null && detection.ftcPose != null && 
-                    (detection.id == BLUE_TAG_ID || detection.id == RED_TAG_ID)) {
+                if (detection != null && detection.ftcPose != null && detection.id == TARGET_TAG_ID) {
                     double distance = detection.ftcPose.range;
                     String distanceCategory = distance < CLOSE_RANGE_DISTANCE ? "🔵 CLOSE" : "🔴 LONG";
                     double selectedVelocity = distance < CLOSE_RANGE_DISTANCE ? CLOSE_RANGE_VELOCITY : LONG_RANGE_VELOCITY;
-                    String tagColor = (detection.id == BLUE_TAG_ID) ? "🔵 Blue" : "🔴 Red";
                     
-                    telemetry.addData("🎯 AprilTag", "%s ID %d DETECTED", tagColor, detection.id);
+                    telemetry.addData("🎯 AprilTag", "ID %d DETECTED", TARGET_TAG_ID);
                     telemetry.addData("📏 Distance", "%.1f inches (%s RANGE)", distance, distanceCategory.substring(2));
                     telemetry.addData("🚀 Auto Velocity", "%.0f ticks/sec", selectedVelocity);
                     telemetry.addData("🧭 Position", "X: %.1f, Y: %.1f", detection.ftcPose.x, detection.ftcPose.y);
@@ -738,7 +726,7 @@ public class TeleOpDECODESimple extends LinearOpMode {
                 }
             }
         } else {
-            telemetry.addData("🔍 AprilTag", "Searching for 🔵 Blue %d | 🔴 Red %d", BLUE_TAG_ID, RED_TAG_ID);
+            telemetry.addData("🔍 AprilTag", "Searching for ID %d...", TARGET_TAG_ID);
             telemetry.addData("🎯 Default Mode", "%.0f ticks/sec (No tag)", DEFAULT_VELOCITY);
             
             // Show any visible tags for debugging
