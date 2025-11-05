@@ -55,7 +55,6 @@ public class TeleOpDECODESimple extends LinearOpMode {
     
     // Indexor position control variables
     private boolean indexorRunningToPosition = false;
-    private int globalIndexorStartPosition = 0;               // Initial position saved at robot start
     
     // Manual indexor control variables
     private boolean manualIndexorControl = false;             // Track if indexor is under manual control
@@ -113,11 +112,10 @@ public class TeleOpDECODESimple extends LinearOpMode {
         telemetry.addData("Left Stick", "Drive/Strafe");
         telemetry.addData("Right Stick X", "Turn");
         telemetry.addData("=== GAMEPAD 2 (OPERATOR) ===", "");
-        telemetry.addData("X Button", "Indexor to 120° from start (%d ticks)", INDEXOR_TICKS);
+        telemetry.addData("X Button", "Indexor + Conveyor (%d ticks)", INDEXOR_TICKS);
         telemetry.addData("Y Button", "Shooter + Shooter Servo");
         telemetry.addData("B Button", "Auto Fire (Fire → Home)");
         telemetry.addData("", "");
-        telemetry.addData("Global Start Position", "%d", globalIndexorStartPosition);
         telemetry.addData("Drive Speed", "%.0f%% max", DRIVE_SPEED_MULTIPLIER * 100);
         telemetry.addData("Strafe Speed", "%.0f%% max", STRAFE_SPEED_MULTIPLIER * 100);
         telemetry.addData("Turn Speed", "%.0f%% max", TURN_SPEED_MULTIPLIER * 100);
@@ -209,9 +207,6 @@ public class TeleOpDECODESimple extends LinearOpMode {
         
         // Set indexor to use encoder
         indexor.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
-        
-        // Save global starting position (should be 0 after reset, but save for consistency)
-        globalIndexorStartPosition = indexor.getCurrentPosition();
     }
     
     private void handleControllerInputs() {
@@ -299,9 +294,9 @@ public class TeleOpDECODESimple extends LinearOpMode {
         // Start conveyor to help feed balls through the system
         conveyor.setPower(CONVEYOR_POWER);
         
-        // Calculate target position relative to global start position (always 120 degrees from start)
+        // Calculate target position
         int currentPosition = indexor.getCurrentPosition();
-        int targetPosition = globalIndexorStartPosition + INDEXOR_TICKS;
+        int targetPosition = currentPosition + INDEXOR_TICKS;
         
         // Reset motor behavior to BRAKE and set to position mode
         indexor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
@@ -314,9 +309,8 @@ public class TeleOpDECODESimple extends LinearOpMode {
         startIndexorStuckDetection();
         
         telemetry.addData("Indexor Position", "Moving to: %d (from %d)", targetPosition, currentPosition);
-        telemetry.addData("Global Start Position", "%d", globalIndexorStartPosition);
-        telemetry.addData("Target Offset", "%d ticks (120°)", INDEXOR_TICKS);
         telemetry.addData("Conveyor", "RUNNING at %.1f power", CONVEYOR_POWER);
+        telemetry.addData("Indexor Ticks", "%d", INDEXOR_TICKS);
         telemetry.update();
     }
     
@@ -564,8 +558,6 @@ public class TeleOpDECODESimple extends LinearOpMode {
             telemetry.addData("Indexor Mode", "POSITION CONTROL");
             telemetry.addData("Current Position", "%d", indexor.getCurrentPosition());
             telemetry.addData("Target Position", "%d", indexor.getTargetPosition());
-            telemetry.addData("Global Start", "%d", globalIndexorStartPosition);
-            telemetry.addData("Offset from Start", "%d ticks", indexor.getCurrentPosition() - globalIndexorStartPosition);
             telemetry.addData("Is Busy", "%s", indexor.isBusy() ? "YES" : "NO");
         } else if (indexorStuckDetectionActive) {
             int currentPos = indexor.getCurrentPosition();
