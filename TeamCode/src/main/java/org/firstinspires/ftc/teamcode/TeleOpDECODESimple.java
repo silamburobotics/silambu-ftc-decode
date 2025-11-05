@@ -113,7 +113,7 @@ public class TeleOpDECODESimple extends LinearOpMode {
         telemetry.addData("Right Stick X", "Turn");
         telemetry.addData("=== GAMEPAD 2 (OPERATOR) ===", "");
         telemetry.addData("X Button", "Indexor + Conveyor (%d ticks)", INDEXOR_TICKS);
-        telemetry.addData("Y Button", "Shooter + Shooter Servo");
+        telemetry.addData("Y Button", "Shooter + Servo (Auto-stops Intake)");
         telemetry.addData("B Button", "Auto Fire (Fire → Home)");
         telemetry.addData("", "");
         telemetry.addData("Drive Speed", "%.0f%% max", DRIVE_SPEED_MULTIPLIER * 100);
@@ -377,12 +377,24 @@ public class TeleOpDECODESimple extends LinearOpMode {
             
             telemetry.addData("Shooter System", "STOPPED");
         } else {
-            // Start shooter with velocity control and servo
+            // STEP 1: Stop intake system first for safety and performance
+            boolean intakeWasRunning = Math.abs(intake.getPower()) > 0.1;
+            if (intakeWasRunning) {
+                intake.setPower(0);
+                conveyor.setPower(0);
+                indexor.setPower(0);
+                telemetry.addData("🛑 INTAKE", "Auto-stopped for shooter startup");
+            }
+            
+            // STEP 2: Start shooter with velocity control and servo
             shooter.setVelocity(SHOOTER_TARGET_VELOCITY);
             shooterServo.setPower(SHOOTER_SERVO_POWER);
             shooterIntentionallyRunning = true;
             
             telemetry.addData("Shooter System", "RUNNING at %.0f ticks/sec", SHOOTER_TARGET_VELOCITY);
+            if (intakeWasRunning) {
+                telemetry.addData("💡 Note", "Intake was stopped automatically");
+            }
         }
         telemetry.update();
     }
