@@ -462,7 +462,7 @@ public class AutoOpDECODESimple extends LinearOpMode {
         // Configure Pinpoint Odometry Computer
         odo.setOffsets(PINPOINT_X_OFFSET, PINPOINT_Y_OFFSET, DistanceUnit.MM); // Set the odometry pod location relative to the point that the odometry computer tracks around
         odo.setEncoderResolution(GoBildaPinpointDriver.GoBildaOdometryPods.goBILDA_4_BAR_POD); // Set the encoder resolution
-        odo.setEncoderDirections(GoBildaPinpointDriver.EncoderDirection.REVERSE, GoBildaPinpointDriver.EncoderDirection.FORWARD); // Set the direction that each encoder counts as positive (parallel, perpendicular)
+        odo.setEncoderDirections(GoBildaPinpointDriver.EncoderDirection.REVERSED, GoBildaPinpointDriver.EncoderDirection.FORWARD); // Set the direction that each encoder counts as positive (parallel, perpendicular)
         odo.resetPosAndIMU(); // Reset the position to 0 and reset the IMU
     }
 }
