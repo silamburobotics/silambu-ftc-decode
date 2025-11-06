@@ -35,10 +35,10 @@ public final class MyTestTry extends LinearOpMode {
                 .turn(Math.toRadians(90))
                 .waitSeconds(1);
 
-/*        TrajectoryActionBuilder tab4 = tab3.endTrajectory().fresh()
+        TrajectoryActionBuilder tab4 = tab3.endTrajectory().fresh()
                 .lineToY(0)
                 .turn(Math.toRadians(90))
-                .waitSeconds(1);*/
+                .waitSeconds(1);
 
         waitForStart();
 
@@ -46,7 +46,8 @@ public final class MyTestTry extends LinearOpMode {
                 new SequentialAction(
                         tab1.build(),
                         tab2.build(),
-                        tab3.build()//,tab4.build()
+                        tab3.build(),
+                        tab4.build()
                 )
         );
 

@@ -68,8 +68,8 @@ public class TeleOpDECODESimple extends LinearOpMode {
     // Motor power settings
     public static final double INTAKE_POWER = 0.8;
     public static final double CONVEYOR_POWER = 1.0;
-    public static final double AUTO_INDEXOR_POWER = 0.1;      // Power for automatic indexor movement
-    public static final double MANUAL_INDEXOR_POWER = 0.3;    // Power for manual indexor control via joystick
+    public static final double AUTO_INDEXOR_POWER = 0.4;      // Power for automatic indexor movement
+    public static final double MANUAL_INDEXOR_POWER = 0.4;    // Power for manual indexor control via joystick
     public static final double SHOOTER_POWER = 1.0;
     public static final double SHOOTER_SERVO_POWER = 1.0;     // Positive for forward direction
     
