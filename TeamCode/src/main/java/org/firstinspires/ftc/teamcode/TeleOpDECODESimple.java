@@ -33,8 +33,9 @@ public class TeleOpDECODESimple extends LinearOpMode {
     
     // Variables to track button states
     private boolean previousA = false;  // Gamepad1 A button (intake)
-    private boolean previousX1 = false; // Gamepad1 X button (shooter 1600)
-    private boolean previousY1 = false; // Gamepad1 Y button (shooter 1600)
+    private boolean previousX1 = false; // Gamepad1 X button (indexor)
+    private boolean previousY1 = false; // Gamepad1 Y button (shooter 1300)
+    private boolean previousB1 = false; // Gamepad1 B button (shooter 1500)
     
     // Gamepad2 button states (operator controls)
     private boolean previousX2 = false; // Gamepad2 X button (indexor)
@@ -216,6 +217,7 @@ public class TeleOpDECODESimple extends LinearOpMode {
         boolean currentA = gamepad1.a;
         boolean currentX1 = gamepad1.x;
         boolean currentY1 = gamepad1.y;
+        boolean currentB1 = gamepad1.b;
         
         // Get current button states for gamepad2 (operator)
         boolean currentX2 = gamepad2.x;
@@ -227,14 +229,19 @@ public class TeleOpDECODESimple extends LinearOpMode {
             toggleIntakeSystem();
         }
         
-        // Handle X button on gamepad1 - Toggle Shooter at 1600 velocity
+        // Handle X button on gamepad1 - Start Indexor
         if (currentX1 && !previousX1) {
-            toggleShooter1600();
+            startIndexor();
         }
         
         // Handle Y button on gamepad1 - Toggle Shooter at 1300 velocity
         if (currentY1 && !previousY1) {
             toggleShooter1300();
+        }
+        
+        // Handle B button on gamepad1 - Toggle Shooter at 1500 velocity
+        if (currentB1 && !previousB1) {
+            toggleShooter1500();
         }
         
         // Handle X button on gamepad2 - Run Indexor to Position
@@ -256,6 +263,7 @@ public class TeleOpDECODESimple extends LinearOpMode {
         previousA = currentA;
         previousX1 = currentX1;
         previousY1 = currentY1;
+        previousB1 = currentB1;
         
         // Update previous button states for gamepad2
         previousX2 = currentX2;
@@ -291,6 +299,31 @@ public class TeleOpDECODESimple extends LinearOpMode {
             telemetry.addData("Intake", "%.1f power", INTAKE_POWER);
             telemetry.addData("Conveyor", "%.1f power", CONVEYOR_POWER);
             telemetry.addData("Indexor", "%.1f power", AUTO_INDEXOR_POWER);
+        }
+        telemetry.update();
+    }
+    
+    private void startIndexor() {
+        // Check if indexor is already running
+        boolean indexorRunning = Math.abs(indexor.getPower()) > 0.1;
+        
+        if (indexorRunning) {
+            // Stop indexor
+            indexor.setPower(0);
+            indexor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+            indexor.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
+            indexorStuckDetectionActive = false;
+            indexorRunningToPosition = false;
+            
+            telemetry.addData("Indexor", "STOPPED");
+        } else {
+            // Start indexor with automatic power
+            indexor.setPower(AUTO_INDEXOR_POWER);
+            indexor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+            startIndexorStuckDetection();
+            
+            telemetry.addData("Indexor", "STARTED");
+            telemetry.addData("Indexor Power", "%.1f", AUTO_INDEXOR_POWER);
         }
         telemetry.update();
     }
@@ -415,7 +448,7 @@ public class TeleOpDECODESimple extends LinearOpMode {
         telemetry.update();
     }
     
-    private void toggleShooter1600() {
+    private void toggleShooter1500() {
         // Check if shooter is currently running
         if (shooterIntentionallyRunning) {
             // Stop shooter and servo
@@ -434,12 +467,12 @@ public class TeleOpDECODESimple extends LinearOpMode {
                 telemetry.addData("🛑 INTAKE", "Auto-stopped for shooter startup");
             }
             
-            // STEP 2: Start shooter with velocity control and servo at 1600 ticks/sec
-            shooter.setVelocity(1600);
+            // STEP 2: Start shooter with velocity control and servo at 1500 ticks/sec
+            shooter.setVelocity(1500);
             shooterServo.setPower(SHOOTER_SERVO_POWER);
             shooterIntentionallyRunning = true;
             
-            telemetry.addData("Shooter System", "RUNNING at 1600 ticks/sec");
+            telemetry.addData("Shooter System", "RUNNING at 1500 ticks/sec");
             if (intakeWasRunning) {
                 telemetry.addData("💡 Note", "Intake was stopped automatically");
             }
