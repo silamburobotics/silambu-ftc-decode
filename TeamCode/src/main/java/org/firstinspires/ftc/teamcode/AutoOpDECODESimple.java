@@ -68,23 +68,6 @@ public class AutoOpDECODESimple extends LinearOpMode {
     public static final double INDEXOR_MOVE_TIMEOUT = 3.0;    // Maximum time to wait for indexor movement
     public static final double SHOOTER_SPINUP_TIMEOUT = 5.0;  // Maximum time to wait for shooter to reach speed
     
-    // Movement settings
-    public static final double DRIVE_POWER = 0.6;             // Power for autonomous movement
-    public static final double MOVEMENT_DISTANCE_FEET = 2.0;  // Distance to move (2 feet)
-    public static final double MOVEMENT_TIMEOUT = 5.0;        // Maximum time for movement
-    public static final double VELOCITY_THRESHOLD = 1400.0;   // Velocity threshold for direction decision
-    
-    // Encoder settings for movement (adjust based on your robot's wheel configuration)
-    public static final double TICKS_PER_INCH = 50.0;         // Approximate ticks per inch (adjust for your wheels)
-    public static final double INCHES_PER_FOOT = 12.0;        // Inches in a foot
-    
-    // Robot Front Direction Definition
-    // IMPORTANT: Robot front is defined as the side with the shooter mechanism
-    // - Positive Y direction = Robot moves forward (shooter side leads)
-    // - Positive X direction = Robot strafes right
-    // - Positive heading (0°) = Robot faces forward along positive Y axis
-    // - Heading increases counter-clockwise (standard mathematical convention)
-    
     // Pinpoint Odometry settings
     public static final double PINPOINT_X_OFFSET = -84.0;     // mm, X offset of the odometry pod from center of rotation
     public static final double PINPOINT_Y_OFFSET = -168.0;    // mm, Y offset of the odometry pod from center of rotation
@@ -108,14 +91,13 @@ public class AutoOpDECODESimple extends LinearOpMode {
         telemetry.addData("6.", "Move indexor + wait for velocity");
         telemetry.addData("7.", "Fire shot 3");
         telemetry.addData("8.", "Stop shooter system");
-        telemetry.addData("9.", "Move robot based on velocity");
         telemetry.addData("", "");
         telemetry.addData("Shooter Speed", "%.0f ticks/sec", SHOOTER_TARGET_VELOCITY);
-        telemetry.addData("Movement Direction", SHOOTER_TARGET_VELOCITY > VELOCITY_THRESHOLD ? "Forward 2ft" : "Backward 2ft");
         telemetry.addData("Conveyor Power", "%.0f%%", CONVEYOR_POWER * 100);
         telemetry.addData("Shots", "3 total shots");
-        telemetry.addData("Total Time", "~15-20 seconds (with movement)");
+        telemetry.addData("Total Time", "~10-15 seconds");
         telemetry.addData("", "");
+        telemetry.addData("Mode", "Shooting Only (No Movement)");
         telemetry.addData("Odometry Status", odo.getDeviceStatus());
         telemetry.addData("Pinpoint Frequency", "%.1f Hz", odo.getFrequency());
         telemetry.update();
@@ -158,12 +140,8 @@ public class AutoOpDECODESimple extends LinearOpMode {
         // Step 8: Stop shooter
         stopShooterSystem();
         
-        // Step 9: Move robot based on shooter velocity setting
-        moveRobotBasedOnVelocity();
-        
         telemetry.addData("✅ AUTONOMOUS", "Sequence completed!");
         telemetry.addData("🎯 Shots Fired", "3 shots");
-        telemetry.addData("🚗 Movement", "2 feet %s", SHOOTER_TARGET_VELOCITY > VELOCITY_THRESHOLD ? "forward" : "backward");
         telemetry.addData("⏱️ Status", "Autonomous finished");
         telemetry.update();
     }
@@ -408,122 +386,6 @@ public class AutoOpDECODESimple extends LinearOpMode {
         telemetry.addData("Pinpoint Frequency", "%.1f Hz", odo.getFrequency());
     }
     
-    private void moveRobotBasedOnVelocity() {
-        // Determine direction based on shooter velocity
-        boolean moveForward = SHOOTER_TARGET_VELOCITY > VELOCITY_THRESHOLD;
-        String direction = moveForward ? "FORWARD" : "BACKWARD";
-        
-        telemetry.addData("🚗 STEP 9", "Moving robot %s...", direction);
-        telemetry.addData("⚡ Velocity Setting", "%.0f ticks/sec", SHOOTER_TARGET_VELOCITY);
-        telemetry.addData("🎯 Threshold", "%.0f ticks/sec", VELOCITY_THRESHOLD);
-        telemetry.addData("📏 Distance", "%.1f feet", MOVEMENT_DISTANCE_FEET);
-        updateOdometry();
-        telemetry.update();
-        
-        // Calculate target distance in encoder ticks
-        double targetDistanceInches = MOVEMENT_DISTANCE_FEET * INCHES_PER_FOOT;
-        int targetTicks = (int)(targetDistanceInches * TICKS_PER_INCH);
-        
-        // Get starting position from odometry for reference
-        odo.update();
-        Pose2D startPose = odo.getPosition();
-        double startY = startPose.getY(DistanceUnit.MM);
-        
-        // Reset and configure drive motor encoders for movement
-        leftFront.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
-        rightFront.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
-        leftBack.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
-        rightBack.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
-        
-        // Set target positions (positive for forward, negative for backward)
-        int targetPosition = moveForward ? targetTicks : -targetTicks;
-        
-        leftFront.setTargetPosition(targetPosition);
-        rightFront.setTargetPosition(targetPosition);
-        leftBack.setTargetPosition(targetPosition);
-        rightBack.setTargetPosition(targetPosition);
-        
-        // Set to RUN_TO_POSITION mode
-        leftFront.setMode(DcMotor.RunMode.RUN_TO_POSITION);
-        rightFront.setMode(DcMotor.RunMode.RUN_TO_POSITION);
-        leftBack.setMode(DcMotor.RunMode.RUN_TO_POSITION);
-        rightBack.setMode(DcMotor.RunMode.RUN_TO_POSITION);
-        
-        // Start movement with appropriate power
-        double movePower = moveForward ? DRIVE_POWER : -DRIVE_POWER;
-        leftFront.setPower(movePower);
-        rightFront.setPower(movePower);
-        leftBack.setPower(movePower);
-        rightBack.setPower(movePower);
-        
-        // Monitor movement progress
-        ElapsedTime timeout = new ElapsedTime();
-        timeout.reset();
-        
-        while (opModeIsActive() && 
-               (leftFront.isBusy() || rightFront.isBusy() || leftBack.isBusy() || rightBack.isBusy()) && 
-               timeout.seconds() < MOVEMENT_TIMEOUT) {
-            
-            // Get current positions
-            int currentLF = leftFront.getCurrentPosition();
-            int currentRF = rightFront.getCurrentPosition();
-            int currentLB = leftBack.getCurrentPosition();
-            int currentRB = rightBack.getCurrentPosition();
-            int avgPosition = (currentLF + currentRF + currentLB + currentRB) / 4;
-            
-            // Update odometry and get current position
-            updateOdometry();
-            odo.update();
-            Pose2D currentPose = odo.getPosition();
-            double currentY = currentPose.getY(DistanceUnit.MM);
-            double distanceTraveledMM = Math.abs(currentY - startY);
-            double distanceTraveledInches = distanceTraveledMM / 25.4; // Convert mm to inches
-            
-            telemetry.addData("🚗 MOVING", "%s %.1f feet", direction, MOVEMENT_DISTANCE_FEET);
-            telemetry.addData("🎯 Target Position", "%d ticks", targetPosition);
-            telemetry.addData("📍 Average Position", "%d ticks", avgPosition);
-            telemetry.addData("📏 Progress", "%.1f / %.1f inches", distanceTraveledInches, targetDistanceInches);
-            telemetry.addData("⏱️ Elapsed", "%.1f / %.1f seconds", timeout.seconds(), MOVEMENT_TIMEOUT);
-            telemetry.addData("Motor Positions", "LF:%d RF:%d LB:%d RB:%d", currentLF, currentRF, currentLB, currentRB);
-            telemetry.update();
-            
-            sleep(50);
-        }
-        
-        // Stop all drive motors
-        leftFront.setPower(0);
-        rightFront.setPower(0);
-        leftBack.setPower(0);
-        rightBack.setPower(0);
-        
-        // Get final position for verification
-        odo.update();
-        Pose2D finalPose = odo.getPosition();
-        double finalY = finalPose.getY(DistanceUnit.MM);
-        double totalDistanceMM = Math.abs(finalY - startY);
-        double totalDistanceInches = totalDistanceMM / 25.4;
-        double totalDistanceFeet = totalDistanceInches / 12.0;
-        
-        // Reset to run without encoders for safety
-        leftFront.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
-        rightFront.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
-        leftBack.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
-        rightBack.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
-        
-        if (timeout.seconds() >= MOVEMENT_TIMEOUT) {
-            telemetry.addData("⚠️ WARNING", "Movement timeout");
-        } else {
-            telemetry.addData("✅ MOVEMENT", "Completed %s", direction);
-        }
-        
-        telemetry.addData("📏 Actual Distance", "%.2f feet (%.1f inches)", totalDistanceFeet, totalDistanceInches);
-        telemetry.addData("🎯 Target Distance", "%.1f feet", MOVEMENT_DISTANCE_FEET);
-        updateOdometry();
-        telemetry.update();
-        
-        sleep(1000); // Brief pause to show results
-    }
-    
     private void initializeMotors() {
         // Initialize all motors
         indexor = hardwareMap.get(DcMotorEx.class, "indexor");
@@ -563,8 +425,6 @@ public class AutoOpDECODESimple extends LinearOpMode {
         triggerServo.setPosition(TRIGGER_HOME);
         
         // Set mecanum drive motor directions
-        // Motor directions are configured for robot front = shooter side
-        // This setup ensures positive Y movement = forward (toward target)
         leftFront.setDirection(DcMotor.Direction.REVERSE);
         rightFront.setDirection(DcMotor.Direction.FORWARD);
         leftBack.setDirection(DcMotor.Direction.REVERSE);
