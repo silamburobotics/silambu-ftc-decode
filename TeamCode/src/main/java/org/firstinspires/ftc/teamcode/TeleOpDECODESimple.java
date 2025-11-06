@@ -35,7 +35,7 @@ public class TeleOpDECODESimple extends LinearOpMode {
     private boolean previousA = false;  // Gamepad1 A button (intake)
     private boolean previousX1 = false; // Gamepad1 X button (indexor)
     private boolean previousY1 = false; // Gamepad1 Y button (shooter 1300)
-    private boolean previousB1 = false; // Gamepad1 B button (shooter 1500)
+    private boolean previousB1 = false; // Gamepad1 B button (shooter 1530)
     
     // Gamepad2 button states (operator controls)
     private boolean previousX2 = false; // Gamepad2 X button (indexor)
@@ -44,6 +44,9 @@ public class TeleOpDECODESimple extends LinearOpMode {
     
     // Shooter state tracking
     private boolean shooterIntentionallyRunning = false;
+    private double currentShooterTargetVelocity = 1300; // Track current target velocity
+    private ElapsedTime shooterStabilizationTimer = new ElapsedTime(); // Timer for speed stabilization
+    private boolean shooterSpeedStable = false; // Track if speed is stable
     
     // Trigger servo management
     private boolean manualTriggerControl = false; // Track if trigger is under manual control
@@ -77,6 +80,15 @@ public class TeleOpDECODESimple extends LinearOpMode {
     public static double SHOOTER_TARGET_VELOCITY = 1300;      // Range: 1200-1800 ticks/sec
     public static final double SHOOTER_SPEED_THRESHOLD = 0.95; // 95% of target speed
     public static final double SHOOTER_TICKS_PER_REVOLUTION = 1020.0; // goBILDA 435 RPM motor
+    
+    // Speed consistency settings
+    public static final double SHOOTER_MIN_SPEED_THRESHOLD = 0.85; // 85% minimum for consistent shooting
+    public static final double SHOOTER_STABILIZATION_TIME = 1.0;   // Seconds to wait for speed stabilization
+    public static final double SHOOTER_SPEED_TOLERANCE = 50;       // ticks/sec tolerance for "stable" speed
+    
+    // Advanced shooter tuning (FTC Dashboard configurable)
+    public static double SHOOTER_B_BUTTON_VELOCITY = 1530;         // B button target velocity (configurable)
+    public static double SHOOTER_VELOCITY_CORRECTION_FACTOR = 1.02; // Slight overcorrection for consistency
     
     // Speed light control settings (using servo positions for LED control)
     public static final double LIGHT_OFF_POSITION = 0.0;      // Servo position for light off
@@ -136,6 +148,7 @@ public class TeleOpDECODESimple extends LinearOpMode {
             checkTriggerTimeout();
             handleTriggerAutoFire();
             updateSpeedLight();
+            monitorShooterSpeed(); // Monitor and maintain shooter speed
             updateTelemetry();
             sleep(20); // Small delay to prevent excessive CPU usage
         }
@@ -239,9 +252,9 @@ public class TeleOpDECODESimple extends LinearOpMode {
             toggleShooter1300();
         }
         
-        // Handle B button on gamepad1 - Toggle Shooter at 1500 velocity
+        // Handle B button on gamepad1 - Toggle Shooter at 1530 velocity
         if (currentB1 && !previousB1) {
-            toggleShooter1500();
+            toggleShooter1530();
         }
         
         // Handle X button on gamepad2 - Run Indexor to Position
@@ -439,6 +452,7 @@ public class TeleOpDECODESimple extends LinearOpMode {
             shooter.setVelocity(SHOOTER_TARGET_VELOCITY);
             shooterServo.setPower(SHOOTER_SERVO_POWER);
             shooterIntentionallyRunning = true;
+            currentShooterTargetVelocity = SHOOTER_TARGET_VELOCITY;
             
             telemetry.addData("Shooter System", "RUNNING at %.0f ticks/sec", SHOOTER_TARGET_VELOCITY);
             if (intakeWasRunning) {
@@ -448,13 +462,14 @@ public class TeleOpDECODESimple extends LinearOpMode {
         telemetry.update();
     }
     
-    private void toggleShooter1500() {
+    private void toggleShooter1530() {
         // Check if shooter is currently running
         if (shooterIntentionallyRunning) {
             // Stop shooter and servo
             shooter.setPower(0);
             shooterServo.setPower(0);
             shooterIntentionallyRunning = false;
+            shooterSpeedStable = false; // Reset stability status
             
             telemetry.addData("Shooter System", "STOPPED");
         } else {
@@ -467,12 +482,18 @@ public class TeleOpDECODESimple extends LinearOpMode {
                 telemetry.addData("🛑 INTAKE", "Auto-stopped for shooter startup");
             }
             
-            // STEP 2: Start shooter with velocity control and servo at 1500 ticks/sec
-            shooter.setVelocity(1500);
+            // STEP 2: Start shooter with velocity control and servo at configurable speed
+            shooter.setVelocity(SHOOTER_B_BUTTON_VELOCITY);
             shooterServo.setPower(SHOOTER_SERVO_POWER);
             shooterIntentionallyRunning = true;
+            currentShooterTargetVelocity = SHOOTER_B_BUTTON_VELOCITY;
             
-            telemetry.addData("Shooter System", "RUNNING at 1500 ticks/sec");
+            // Reset stabilization tracking
+            shooterStabilizationTimer.reset();
+            shooterSpeedStable = false;
+            
+            telemetry.addData("Shooter System", "RUNNING at %.0f ticks/sec", SHOOTER_B_BUTTON_VELOCITY);
+            telemetry.addData("Status", "🟡 Stabilizing speed...");
             if (intakeWasRunning) {
                 telemetry.addData("💡 Note", "Intake was stopped automatically");
             }
@@ -487,6 +508,7 @@ public class TeleOpDECODESimple extends LinearOpMode {
             shooter.setPower(0);
             shooterServo.setPower(0);
             shooterIntentionallyRunning = false;
+            shooterSpeedStable = false; // Reset stability status
             
             telemetry.addData("Shooter System", "STOPPED");
         } else {
@@ -503,13 +525,45 @@ public class TeleOpDECODESimple extends LinearOpMode {
             shooter.setVelocity(1300);
             shooterServo.setPower(SHOOTER_SERVO_POWER);
             shooterIntentionallyRunning = true;
+            currentShooterTargetVelocity = 1300;
+            
+            // Reset stabilization tracking
+            shooterStabilizationTimer.reset();
+            shooterSpeedStable = false;
             
             telemetry.addData("Shooter System", "RUNNING at 1300 ticks/sec");
+            telemetry.addData("Status", "🟡 Stabilizing speed...");
             if (intakeWasRunning) {
                 telemetry.addData("💡 Note", "Intake was stopped automatically");
             }
         }
         telemetry.update();
+    }
+    
+    private void monitorShooterSpeed() {
+        if (!shooterIntentionallyRunning) {
+            shooterSpeedStable = false;
+            return;
+        }
+        
+        double currentVelocity = shooter.getVelocity();
+        double speedError = Math.abs(currentVelocity - currentShooterTargetVelocity);
+        double stabilizationTime = shooterStabilizationTimer.seconds();
+        
+        // Check if speed is within tolerance
+        boolean speedWithinTolerance = speedError <= SHOOTER_SPEED_TOLERANCE;
+        
+        if (speedWithinTolerance && stabilizationTime >= SHOOTER_STABILIZATION_TIME) {
+            shooterSpeedStable = true;
+        } else if (!speedWithinTolerance) {
+            // Speed drifted - reset stabilization timer
+            shooterStabilizationTimer.reset();
+            shooterSpeedStable = false;
+            
+            // Apply corrective velocity command with slight overcorrection for consistency
+            double correctedVelocity = currentShooterTargetVelocity * SHOOTER_VELOCITY_CORRECTION_FACTOR;
+            shooter.setVelocity(correctedVelocity);
+        }
     }
     
     private void updateSpeedLight() {
@@ -519,18 +573,18 @@ public class TeleOpDECODESimple extends LinearOpMode {
             return;
         }
         
-        // Shooter is on - check speed
+        // Shooter is on - check speed and stability
         double currentVelocity = shooter.getVelocity();
-        double speedPercentage = currentVelocity / SHOOTER_TARGET_VELOCITY;
+        double speedPercentage = currentVelocity / currentShooterTargetVelocity;
         
-        if (currentVelocity > 50 && speedPercentage > SHOOTER_SPEED_THRESHOLD) {
-            // Speed is good - green light
+        if (shooterSpeedStable && speedPercentage > SHOOTER_SPEED_THRESHOLD) {
+            // Speed is optimal and stable - green light (95%+ and stable)
             speedLight.setPosition(LIGHT_GREEN_POSITION);
-        } else if (currentVelocity > 50 && speedPercentage > 0.7) {
-            // Speed is medium - white light
+        } else if (currentVelocity > 50 && speedPercentage > SHOOTER_MIN_SPEED_THRESHOLD) {
+            // Speed is acceptable but may not be stable - white light (85%+ of target)
             speedLight.setPosition(LIGHT_WHITE_POSITION);
         } else {
-            // Speed is low - off (no light)
+            // Speed is too low for consistent shooting - off (no light)
             speedLight.setPosition(LIGHT_OFF_POSITION);
         }
     }
@@ -644,8 +698,32 @@ public class TeleOpDECODESimple extends LinearOpMode {
         // Show shooter status
         if (shooterIntentionallyRunning) {
             telemetry.addData("Shooter", "RUNNING");
-            telemetry.addData("Target Velocity", "%.0f ticks/sec", SHOOTER_TARGET_VELOCITY);
+            telemetry.addData("Target Velocity", "%.0f ticks/sec", currentShooterTargetVelocity);
             telemetry.addData("Current Velocity", "%.0f ticks/sec", shooter.getVelocity());
+            double speedPercentage = shooter.getVelocity() / currentShooterTargetVelocity * 100;
+            telemetry.addData("Speed Accuracy", "%.1f%%", speedPercentage);
+            
+            // Speed stabilization status
+            double stabilizationTime = shooterStabilizationTimer.seconds();
+            double speedError = Math.abs(shooter.getVelocity() - currentShooterTargetVelocity);
+            
+            if (shooterSpeedStable) {
+                telemetry.addData("🎯 STABILITY", "STABLE - Ready to shoot!");
+                telemetry.addData("✅ SPEED STATUS", "Optimal & consistent");
+            } else if (stabilizationTime < SHOOTER_STABILIZATION_TIME) {
+                double timeLeft = SHOOTER_STABILIZATION_TIME - stabilizationTime;
+                telemetry.addData("🟡 STABILITY", "Stabilizing... %.1fs left", timeLeft);
+            } else {
+                telemetry.addData("⚠️ STABILITY", "Speed varying (±%.0f ticks/sec)", speedError);
+            }
+            
+            // Overall speed consistency warning
+            if (speedPercentage < SHOOTER_MIN_SPEED_THRESHOLD * 100) {
+                telemetry.addData("⚠️ SPEED WARNING", "Too slow for consistent shots!");
+            } else if (shooterSpeedStable && speedPercentage >= SHOOTER_SPEED_THRESHOLD * 100) {
+                telemetry.addData("✅ READY TO SHOOT", "Speed stable & optimal");
+            }
+            
             telemetry.addData("Shooter Servo", "%.2f", shooterServo.getPower());
             telemetry.addData("Speed Light", "%.2f", speedLight.getPosition());
         } else {
