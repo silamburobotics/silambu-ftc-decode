@@ -111,7 +111,7 @@ public class AutoBlueFront extends LinearOpMode {
                 .build();
         
         Action moveLeft = drive.actionBuilder(new Pose2d(START_POSE.position.x, START_POSE.position.y - REARWARD_DISTANCE, START_POSE.heading.toDouble()))
-                .strafeToLinearHeading(new Vector2d(START_POSE.position.x - LEFTWARD_DISTANCE, START_POSE.position.y - REARWARD_DISTANCE), START_POSE.heading.toDouble())
+                .lineToX(START_POSE.position.x - LEFTWARD_DISTANCE)  // Move left 12 inches (orthogonal to Y axis)
                 .build();
         
         // Step 1: Move rearward 32 inches
