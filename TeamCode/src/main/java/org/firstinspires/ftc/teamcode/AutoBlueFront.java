@@ -48,7 +48,7 @@ public class AutoBlueFront extends LinearOpMode {
     public static final int INDEXOR_TICKS = 179;              // goBILDA 312 RPM motor: 120 degrees = 179 ticks
     
     // Shooter velocity control (ticks per second) - Blue alliance optimized
-    public static double SHOOTER_TARGET_VELOCITY = 1300;      // Range: 1200-1800 ticks/sec (Blue front position)
+    public static double SHOOTER_TARGET_VELOCITY = 1200;      // Range: 1200-1800 ticks/sec (Blue front position)
     public static final double SHOOTER_SPEED_THRESHOLD = 0.95; // 95% of target speed
     public static final double SHOOTER_TICKS_PER_REVOLUTION = 1020.0; // goBILDA 435 RPM motor
     
@@ -69,8 +69,8 @@ public class AutoBlueFront extends LinearOpMode {
     public static final double SHOOTER_SPINUP_TIMEOUT = 5.0;  // Maximum time to wait for shooter to reach speed
     
     // Road Runner trajectory settings
-    public static final double REARWARD_DISTANCE = 40.0;      // Distance to move rearward (inches)
-    public static final double LEFTWARD_DISTANCE = 12.0;      // Distance to move left (inches)
+    public static final double REARWARD_DISTANCE = 40.0;      // Distance to move left (inches)
+    public static final double LEFTWARD_DISTANCE = 12.0;      // Distance to move forward (inches)
     
     @Override
     public void runOpMode() {
@@ -85,7 +85,7 @@ public class AutoBlueFront extends LinearOpMode {
         telemetry.addData("=== AUTONOMOUS SEQUENCE ===", "");
         telemetry.addData("1.", "Move left 40 inches using Road Runner");
         telemetry.addData("2.", "Start shooter + fire 3 shots");
-        telemetry.addData("3.", "Move left 12 inches more using Road Runner");
+        telemetry.addData("3.", "Move forward 12 inches using Road Runner");
         telemetry.addData("", "");
         telemetry.addData("Shooter Speed", "%.0f ticks/sec", SHOOTER_TARGET_VELOCITY);
         telemetry.addData("Alliance Light", "🔵 Blue indicator");
@@ -111,7 +111,7 @@ public class AutoBlueFront extends LinearOpMode {
                 .build();
         
         Action moveLeft = drive.actionBuilder(new Pose2d(START_POSE.position.x - REARWARD_DISTANCE, START_POSE.position.y, START_POSE.heading.toDouble()))
-                .strafeToLinearHeading(new Vector2d(START_POSE.position.x - REARWARD_DISTANCE - LEFTWARD_DISTANCE, START_POSE.position.y), START_POSE.heading.toDouble())  // Strafe left 12 inches more (total 52" left)
+                .strafeToLinearHeading(new Vector2d(START_POSE.position.x - REARWARD_DISTANCE, START_POSE.position.y + LEFTWARD_DISTANCE), START_POSE.heading.toDouble())  // Strafe forward 12 inches (perpendicular to first movement)
                 .build();
         
         // Step 1: Move left 32 inches
@@ -139,14 +139,14 @@ public class AutoBlueFront extends LinearOpMode {
         
         stopShooterSystem();
         
-        // Step 3: Move left 12 inches more
-        telemetry.addData("🚀 STEP 3", "Moving left %.1f inches more...", LEFTWARD_DISTANCE);
+        // Step 3: Move forward 12 inches
+        telemetry.addData("🚀 STEP 3", "Moving forward %.1f inches...", LEFTWARD_DISTANCE);
         telemetry.update();
         Actions.runBlocking(moveLeft);
         
         telemetry.addData("✅ AUTONOMOUS", "Blue Front Road Runner sequence completed!");
         telemetry.addData("🔵 Alliance", "BLUE");
-        telemetry.addData("📍 Final Position", "52\" left from start (40\" + 12\")");
+        telemetry.addData("📍 Final Position", "40\" left + 12\" forward from start");
         telemetry.addData("🎯 Shots Fired", "3 shots");
         telemetry.addData("⏱️ Status", "Autonomous finished");
         telemetry.update();
