@@ -89,7 +89,7 @@ public class TeleOpDECODESimple extends LinearOpMode {
     private boolean indexorRunningToPosition = false;
     
     // Global indexor position tracking
-    private int indexorGlobalPosition = 0;                    // Track current global position (0, 1, 2, 3)
+    private int indexorGlobalPosition = 0;                    // Track current global position (0, 1, 2, 3, 4, 5...) - forward only
     private int indexorInitialPosition = 0;                   // Store initial encoder position for reference
     
     // Manual indexor control variables
@@ -451,8 +451,8 @@ public class TeleOpDECODESimple extends LinearOpMode {
         // Start conveyor to help feed balls through the system
         conveyor.setPower(CONVEYOR_POWER);
         
-        // Update global position tracking BEFORE moving
-        indexorGlobalPosition = (indexorGlobalPosition + 1) % 4; // Advance to next position (0,1,2,3 cycle)
+        // Update global position tracking BEFORE moving (forward-only, no cycling back)
+        indexorGlobalPosition = indexorGlobalPosition + 1; // Always advance forward (no % 4 cycling)
         
         // Calculate target position based on new global position
         int targetPosition = indexorInitialPosition + (indexorGlobalPosition * INDEXOR_TICKS_PER_120_DEGREES);
@@ -470,7 +470,7 @@ public class TeleOpDECODESimple extends LinearOpMode {
         telemetry.addData("🎯 INDEXOR FORWARD", "Moving to global position %d (%.0f°)", 
             indexorGlobalPosition, indexorGlobalPosition * 120.0);
         telemetry.addData("Target Position", "%d ticks", targetPosition);
-        telemetry.addData("Movement", "Global positioning system");
+        telemetry.addData("Movement", "Forward-only positioning (no cycle back)");
         telemetry.addData("Conveyor", "RUNNING at %.1f power", CONVEYOR_POWER);
         telemetry.update();
     }
@@ -797,8 +797,8 @@ public class TeleOpDECODESimple extends LinearOpMode {
         // Start conveyor to help feed balls through the system
         conveyor.setPower(CONVEYOR_POWER);
         
-        // Update global position tracking BEFORE moving
-        indexorGlobalPosition = (indexorGlobalPosition + 1) % 4; // Advance to next position (0,1,2,3 cycle)
+        // Update global position tracking BEFORE moving (forward-only, no cycling back)
+        indexorGlobalPosition = indexorGlobalPosition + 1; // Always advance forward (no % 4 cycling)
         
         // Calculate target position based on new global position
         int targetPosition = indexorInitialPosition + (indexorGlobalPosition * INDEXOR_TICKS_PER_120_DEGREES);
