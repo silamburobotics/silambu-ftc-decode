@@ -48,7 +48,7 @@ public class AutoBlueBack extends LinearOpMode {
     public static final int INDEXOR_TICKS = 179;              // goBILDA 312 RPM motor: 120 degrees = 179 ticks
     
     // Shooter velocity control (ticks per second) - Blue alliance optimized
-    public static double SHOOTER_TARGET_VELOCITY = 1150;      // Range: 1200-1800 ticks/sec (Blue back position)
+    public static double SHOOTER_TARGET_VELOCITY = 1550;      // Range: 1200-1800 ticks/sec (Blue back position)
     public static final double SHOOTER_SPEED_THRESHOLD = 0.95; // 95% of target speed
     public static final double SHOOTER_TICKS_PER_REVOLUTION = 1020.0; // goBILDA 435 RPM motor
     
@@ -69,7 +69,7 @@ public class AutoBlueBack extends LinearOpMode {
     public static final double SHOOTER_SPINUP_TIMEOUT = 5.0;  // Maximum time to wait for shooter to reach speed
     
     // Road Runner trajectory settings
-    public static final double FORWARD_DISTANCE = 40.0;       // Distance to move forward (inches)
+    public static final double FORWARD_DISTANCE = 40.0;       // Distance to move sideways (inches)
     
     @Override
     public void runOpMode() {
@@ -83,7 +83,7 @@ public class AutoBlueBack extends LinearOpMode {
         telemetry.addData("Start Pose", "X: %.1f\", Y: %.1f\", H: %.1f°", START_POSE.position.x, START_POSE.position.y, Math.toDegrees(START_POSE.heading.toDouble()));
         telemetry.addData("=== AUTONOMOUS SEQUENCE ===", "");
         telemetry.addData("1.", "Start shooter + fire 3 shots");
-        telemetry.addData("2.", "Move forward 40 inches using Road Runner");
+        telemetry.addData("2.", "Move sideways 40 inches using Road Runner (orthogonal to Y axis)");
         telemetry.addData("", "");
         telemetry.addData("Shooter Speed", "%.0f ticks/sec", SHOOTER_TARGET_VELOCITY);
         telemetry.addData("Alliance Light", "🔵 Blue indicator");
@@ -119,19 +119,19 @@ public class AutoBlueBack extends LinearOpMode {
         
         stopShooterSystem();
         
-        // Step 2: Move forward 40 inches
-        telemetry.addData("🚀 STEP 2", "Moving forward %.1f inches...", FORWARD_DISTANCE);
+        // Step 2: Move sideways 40 inches (orthogonal to Y axis)
+        telemetry.addData("🚀 STEP 2", "Moving sideways %.1f inches...", FORWARD_DISTANCE);
         telemetry.update();
         
         Action moveForward = drive.actionBuilder(START_POSE)
-                .lineToY(START_POSE.position.y + FORWARD_DISTANCE)  // Move forward 40 inches
+                .lineToX(START_POSE.position.x + FORWARD_DISTANCE)  // Move sideways 40 inches (orthogonal to Y axis)
                 .build();
         
         Actions.runBlocking(moveForward);
         
         telemetry.addData("✅ AUTONOMOUS", "Blue Back Road Runner sequence completed!");
         telemetry.addData("🔵 Alliance", "BLUE");
-        telemetry.addData("📍 Final Position", "40\" forward from start");
+        telemetry.addData("📍 Final Position", "40\" sideways from start");
         telemetry.addData("🎯 Shots Fired", "3 shots");
         telemetry.addData("⏱️ Status", "Autonomous finished");
         telemetry.update();

@@ -52,6 +52,11 @@ public class AutoBlueFront extends LinearOpMode {
     public static final double SHOOTER_SPEED_THRESHOLD = 0.95; // 95% of target speed
     public static final double SHOOTER_TICKS_PER_REVOLUTION = 1020.0; // goBILDA 435 RPM motor
     
+    // Speed stabilization settings
+    public static final double SHOOTER_SPEED_TOLERANCE = 25;    // ticks/sec tolerance for "stable" speed
+    public static final double SHOOTER_STABILIZATION_TIME = 1.5; // Seconds to wait for speed stabilization between shots
+    public static final double SHOOTER_VELOCITY_CORRECTION_FACTOR = 1.02; // Slight overcorrection for consistency
+    
     // Speed light control settings (using servo positions for LED control)
     public static final double LIGHT_OFF_POSITION = 0.0;      // Servo position for light off
     public static final double LIGHT_GREEN_POSITION = 0.5;    // Servo position for green light
@@ -70,7 +75,7 @@ public class AutoBlueFront extends LinearOpMode {
     
     // Road Runner trajectory settings
     public static final double REARWARD_DISTANCE = 50.0;      // Distance to move left (inches)
-    public static final double LEFTWARD_DISTANCE = 12.0;      // Distance to move forward (inches)
+    public static final double LEFTWARD_DISTANCE = 24.0;      // Distance to move forward (inches)
     
     @Override
     public void runOpMode() {
@@ -156,8 +161,9 @@ public class AutoBlueFront extends LinearOpMode {
         telemetry.addData("🚀 STEP 2", "Starting shooter system...");
         telemetry.update();
         
-        // Start shooter with velocity control
-        shooter.setVelocity(SHOOTER_TARGET_VELOCITY);
+        // Start shooter with optimized velocity control for consistency
+        double initialVelocity = SHOOTER_TARGET_VELOCITY * SHOOTER_VELOCITY_CORRECTION_FACTOR;
+        shooter.setVelocity(initialVelocity);
         
         // Start shooter servo
         shooterServo.setPower(SHOOTER_SERVO_POWER);
@@ -168,7 +174,8 @@ public class AutoBlueFront extends LinearOpMode {
         // Set alliance indicator light
         speedLight.setPosition(LIGHT_BLUE_POSITION);
         
-        telemetry.addData("✅ Shooter", "Started at %.0f ticks/sec", SHOOTER_TARGET_VELOCITY);
+        telemetry.addData("✅ Shooter", "Started at %.0f ticks/sec (corrected)", initialVelocity);
+        telemetry.addData("🎯 Target", "%.0f ticks/sec", SHOOTER_TARGET_VELOCITY);
         telemetry.addData("✅ Shooter Servo", "Running at %.1f power", SHOOTER_SERVO_POWER);
         telemetry.addData("✅ Conveyor", "Running at %.1f power", CONVEYOR_POWER);
         telemetry.addData("🔵 Alliance Light", "Blue indicator active");
@@ -199,6 +206,9 @@ public class AutoBlueFront extends LinearOpMode {
             if (speedPercentage >= SHOOTER_SPEED_THRESHOLD) {
                 telemetry.addData("✅ READY", "Shooter at target speed!");
                 telemetry.update();
+                
+                // Wait for speed stabilization
+                stabilizeShooterSpeed();
                 return;
             }
             
@@ -211,9 +221,71 @@ public class AutoBlueFront extends LinearOpMode {
         telemetry.update();
     }
     
+    private void stabilizeShooterSpeed() {
+        telemetry.addData("⚖️ STABILIZING", "Ensuring shooter speed consistency...");
+        telemetry.update();
+        
+        ElapsedTime stabilizationTimer = new ElapsedTime();
+        stabilizationTimer.reset();
+        
+        double lastVelocity = shooter.getVelocity();
+        boolean speedStable = false;
+        
+        while (opModeIsActive() && stabilizationTimer.seconds() < SHOOTER_STABILIZATION_TIME) {
+            double currentVelocity = shooter.getVelocity();
+            double velocityDifference = Math.abs(currentVelocity - lastVelocity);
+            double targetDifference = Math.abs(currentVelocity - SHOOTER_TARGET_VELOCITY);
+            
+            // Check if speed is stable (small variations)
+            speedStable = (velocityDifference < SHOOTER_SPEED_TOLERANCE) && 
+                         (targetDifference < SHOOTER_SPEED_TOLERANCE);
+            
+            // Apply velocity correction if needed
+            if (targetDifference > SHOOTER_SPEED_TOLERANCE) {
+                double correctedVelocity = SHOOTER_TARGET_VELOCITY * SHOOTER_VELOCITY_CORRECTION_FACTOR;
+                shooter.setVelocity(correctedVelocity);
+                
+                telemetry.addData("🔧 CORRECTING", "Adjusting to %.0f ticks/sec", correctedVelocity);
+            }
+            
+            telemetry.addData("🎯 Target", "%.0f ticks/sec", SHOOTER_TARGET_VELOCITY);
+            telemetry.addData("⚡ Current", "%.0f ticks/sec", currentVelocity);
+            telemetry.addData("📊 Variation", "%.0f ticks/sec", velocityDifference);
+            telemetry.addData("🎯 Target Diff", "%.0f ticks/sec", targetDifference);
+            telemetry.addData("⚖️ Stable", speedStable ? "✅ YES" : "⏳ Stabilizing...");
+            telemetry.addData("⏱️ Stabilizing", "%.1f / %.1f seconds", 
+                stabilizationTimer.seconds(), SHOOTER_STABILIZATION_TIME);
+            telemetry.update();
+            
+            // If speed is stable for a reasonable time, we can exit early
+            if (speedStable && stabilizationTimer.seconds() > 0.5) {
+                telemetry.addData("✅ STABILIZED", "Shooter speed consistent!");
+                telemetry.update();
+                return;
+            }
+            
+            lastVelocity = currentVelocity;
+            sleep(100); // Check every 100ms for stability
+        }
+        
+        telemetry.addData("✅ STABILIZATION", "Complete - Ready to fire!");
+        telemetry.update();
+    }
+    
     private void fireShot(int shotNumber) {
         telemetry.addData("🔥 STEP 5." + shotNumber, "Firing shot %d of 3...", shotNumber);
         telemetry.update();
+        
+        // Pre-fire velocity check and correction
+        double preFire = shooter.getVelocity();
+        double targetDifference = Math.abs(preFire - SHOOTER_TARGET_VELOCITY);
+        
+        if (targetDifference > SHOOTER_SPEED_TOLERANCE) {
+            telemetry.addData("🔧 PRE-FIRE", "Correcting velocity: %.0f → %.0f", preFire, SHOOTER_TARGET_VELOCITY);
+            shooter.setVelocity(SHOOTER_TARGET_VELOCITY * SHOOTER_VELOCITY_CORRECTION_FACTOR);
+            telemetry.update();
+            sleep(200); // Brief stabilization
+        }
         
         // Move trigger to fire position
         triggerServo.setPosition(TRIGGER_FIRE);
@@ -221,13 +293,24 @@ public class AutoBlueFront extends LinearOpMode {
         ElapsedTime fireTimer = new ElapsedTime();
         fireTimer.reset();
         
-        // Wait for fire duration
+        // Wait for fire duration with velocity monitoring
         while (opModeIsActive() && fireTimer.seconds() < TRIGGER_FIRE_DURATION) {
             double currentVelocity = shooter.getVelocity();
+            double speedPercentage = currentVelocity / SHOOTER_TARGET_VELOCITY;
+            double velocityError = Math.abs(currentVelocity - SHOOTER_TARGET_VELOCITY);
+            
             telemetry.addData("🎯 Shot", "%d of 3", shotNumber);
             telemetry.addData("💥 Trigger", "FIRE position");
-            telemetry.addData("⚡ Shooter", "%.0f ticks/sec", currentVelocity);
+            telemetry.addData("⚡ Shooter", "%.0f ticks/sec (%.0f%%)", currentVelocity, speedPercentage * 100);
+            telemetry.addData("📊 Velocity Error", "%.0f ticks/sec", velocityError);
             telemetry.addData("⏱️ Fire Time", "%.1f / %.1f seconds", fireTimer.seconds(), TRIGGER_FIRE_DURATION);
+            
+            // Real-time velocity correction during firing
+            if (velocityError > SHOOTER_SPEED_TOLERANCE) {
+                telemetry.addData("🔧 CORRECTING", "Adjusting during fire");
+                shooter.setVelocity(SHOOTER_TARGET_VELOCITY * SHOOTER_VELOCITY_CORRECTION_FACTOR);
+            }
+            
             telemetry.update();
             sleep(50);
         }
@@ -235,7 +318,10 @@ public class AutoBlueFront extends LinearOpMode {
         // Return trigger to home position
         triggerServo.setPosition(TRIGGER_HOME);
         
+        // Post-fire velocity check
+        double postFire = shooter.getVelocity();
         telemetry.addData("✅ Shot %d", "Fired successfully!", shotNumber);
+        telemetry.addData("📊 Post-Fire Speed", "%.0f ticks/sec", postFire);
         telemetry.update();
         
         // Wait between shots
