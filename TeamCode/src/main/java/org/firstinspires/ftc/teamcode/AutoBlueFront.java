@@ -69,7 +69,7 @@ public class AutoBlueFront extends LinearOpMode {
     public static final double SHOOTER_SPINUP_TIMEOUT = 5.0;  // Maximum time to wait for shooter to reach speed
     
     // Road Runner trajectory settings
-    public static final double REARWARD_DISTANCE = 32.0;      // Distance to move rearward (inches)
+    public static final double REARWARD_DISTANCE = 40.0;      // Distance to move rearward (inches)
     public static final double LEFTWARD_DISTANCE = 12.0;      // Distance to move left (inches)
     
     @Override
@@ -83,7 +83,7 @@ public class AutoBlueFront extends LinearOpMode {
         telemetry.addData("Position", "FRONT");
         telemetry.addData("Start Pose", "X: %.1f\", Y: %.1f\", H: %.1f°", START_POSE.position.x, START_POSE.position.y, Math.toDegrees(START_POSE.heading.toDouble()));
         telemetry.addData("=== AUTONOMOUS SEQUENCE ===", "");
-        telemetry.addData("1.", "Move left 32 inches using Road Runner");
+        telemetry.addData("1.", "Move left 40 inches using Road Runner");
         telemetry.addData("2.", "Start shooter + fire 3 shots");
         telemetry.addData("3.", "Move left 12 inches more using Road Runner");
         telemetry.addData("", "");
@@ -111,7 +111,7 @@ public class AutoBlueFront extends LinearOpMode {
                 .build();
         
         Action moveLeft = drive.actionBuilder(new Pose2d(START_POSE.position.x - REARWARD_DISTANCE, START_POSE.position.y, START_POSE.heading.toDouble()))
-                .lineToX(START_POSE.position.x - REARWARD_DISTANCE - LEFTWARD_DISTANCE)  // Move left 12 inches more (total 44" left)
+                .strafeToLinearHeading(new Vector2d(START_POSE.position.x - REARWARD_DISTANCE - LEFTWARD_DISTANCE, START_POSE.position.y), START_POSE.heading.toDouble())  // Strafe left 12 inches more (total 52" left)
                 .build();
         
         // Step 1: Move left 32 inches
@@ -146,7 +146,7 @@ public class AutoBlueFront extends LinearOpMode {
         
         telemetry.addData("✅ AUTONOMOUS", "Blue Front Road Runner sequence completed!");
         telemetry.addData("🔵 Alliance", "BLUE");
-        telemetry.addData("📍 Final Position", "44\" left from start (32\" + 12\")");
+        telemetry.addData("📍 Final Position", "52\" left from start (40\" + 12\")");
         telemetry.addData("🎯 Shots Fired", "3 shots");
         telemetry.addData("⏱️ Status", "Autonomous finished");
         telemetry.update();

@@ -412,9 +412,11 @@ public class TeleOpDECODESimple extends LinearOpMode {
         // Start conveyor to help feed balls through the system
         conveyor.setPower(CONVEYOR_POWER);
         
-        // Move forward by 120 degrees (179 ticks) from current position
-        int currentPosition = indexor.getCurrentPosition();
-        int targetPosition = currentPosition + INDEXOR_TICKS_PER_120_DEGREES;
+        // Update global position tracking BEFORE moving
+        indexorGlobalPosition = (indexorGlobalPosition + 1) % 4; // Advance to next position (0,1,2,3 cycle)
+        
+        // Calculate target position based on new global position
+        int targetPosition = indexorInitialPosition + (indexorGlobalPosition * INDEXOR_TICKS_PER_120_DEGREES);
         
         // Reset motor behavior to BRAKE and set to position mode
         indexor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
@@ -426,10 +428,10 @@ public class TeleOpDECODESimple extends LinearOpMode {
         indexorRunningToPosition = true;
         startIndexorStuckDetection();
         
-        telemetry.addData("🎯 INDEXOR FORWARD", "Moving forward 120 degrees");
-        telemetry.addData("Current Position", "%d ticks", currentPosition);
+        telemetry.addData("🎯 INDEXOR FORWARD", "Moving to global position %d (%.0f°)", 
+            indexorGlobalPosition, indexorGlobalPosition * 120.0);
         telemetry.addData("Target Position", "%d ticks", targetPosition);
-        telemetry.addData("Movement", "+%d ticks (120°)", INDEXOR_TICKS_PER_120_DEGREES);
+        telemetry.addData("Movement", "Global positioning system");
         telemetry.addData("Conveyor", "RUNNING at %.1f power", CONVEYOR_POWER);
         telemetry.update();
     }
@@ -756,9 +758,11 @@ public class TeleOpDECODESimple extends LinearOpMode {
         // Start conveyor to help feed balls through the system
         conveyor.setPower(CONVEYOR_POWER);
         
-        // Move forward by 120 degrees (179 ticks) from current position
-        int currentPosition = indexor.getCurrentPosition();
-        int targetPosition = currentPosition + INDEXOR_TICKS_PER_120_DEGREES;
+        // Update global position tracking BEFORE moving
+        indexorGlobalPosition = (indexorGlobalPosition + 1) % 4; // Advance to next position (0,1,2,3 cycle)
+        
+        // Calculate target position based on new global position
+        int targetPosition = indexorInitialPosition + (indexorGlobalPosition * INDEXOR_TICKS_PER_120_DEGREES);
         
         // Reset motor behavior to BRAKE and set to position mode
         indexor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
@@ -769,6 +773,9 @@ public class TeleOpDECODESimple extends LinearOpMode {
         // Start tracking
         indexorRunningToPosition = true;
         startIndexorStuckDetection();
+        
+        telemetry.addData("🔄 TRIGGER INDEXOR", "Moving to global position %d (%.0f°)", 
+            indexorGlobalPosition, indexorGlobalPosition * 120.0);
     }
     
     private void handleMecanumDrive() {
