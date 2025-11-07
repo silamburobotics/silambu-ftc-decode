@@ -155,7 +155,7 @@ public class TeleOpDECODESimple extends LinearOpMode {
         telemetry.addData("Left Stick", "Drive/Strafe");
         telemetry.addData("Right Stick X", "Turn");
         telemetry.addData("=== GAMEPAD 2 (OPERATOR) ===", "");
-        telemetry.addData("X Button", "Indexor Global Positions (0°→120°→240°→360°)");
+        telemetry.addData("X Button", "Indexor Forward Movement (+120°)");
         telemetry.addData("Y Button", "Shooter + Servo (Auto-stops Intake)");
         telemetry.addData("B Button", "Auto Fire (Fire → Home)");
         telemetry.addData("", "");
@@ -412,9 +412,9 @@ public class TeleOpDECODESimple extends LinearOpMode {
         // Start conveyor to help feed balls through the system
         conveyor.setPower(CONVEYOR_POWER);
         
-        // Move to next global position (0 -> 1 -> 2 -> 3 -> 0...)
-        indexorGlobalPosition = (indexorGlobalPosition + 1) % 4;
-        int targetPosition = indexorInitialPosition + INDEXOR_POSITIONS[indexorGlobalPosition];
+        // Move forward by 120 degrees (179 ticks) from current position
+        int currentPosition = indexor.getCurrentPosition();
+        int targetPosition = currentPosition + INDEXOR_TICKS_PER_120_DEGREES;
         
         // Reset motor behavior to BRAKE and set to position mode
         indexor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
@@ -426,13 +426,10 @@ public class TeleOpDECODESimple extends LinearOpMode {
         indexorRunningToPosition = true;
         startIndexorStuckDetection();
         
-        // Calculate degrees for display
-        int targetDegrees = indexorGlobalPosition * 120;
-        
-        telemetry.addData("🎯 INDEXOR GLOBAL", "Moving to Position %d", indexorGlobalPosition);
-        telemetry.addData("Target Angle", "%d degrees", targetDegrees);
-        telemetry.addData("Target Encoder", "%d ticks", targetPosition);
-        telemetry.addData("Current Encoder", "%d ticks", indexor.getCurrentPosition());
+        telemetry.addData("🎯 INDEXOR FORWARD", "Moving forward 120 degrees");
+        telemetry.addData("Current Position", "%d ticks", currentPosition);
+        telemetry.addData("Target Position", "%d ticks", targetPosition);
+        telemetry.addData("Movement", "+%d ticks (120°)", INDEXOR_TICKS_PER_120_DEGREES);
         telemetry.addData("Conveyor", "RUNNING at %.1f power", CONVEYOR_POWER);
         telemetry.update();
     }
