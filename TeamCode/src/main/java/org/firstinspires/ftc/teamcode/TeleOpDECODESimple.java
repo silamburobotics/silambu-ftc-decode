@@ -10,6 +10,16 @@ import com.qualcomm.robotcore.hardware.CRServo;
 import com.qualcomm.robotcore.hardware.Servo;
 import com.qualcomm.robotcore.util.ElapsedTime;
 
+// AprilTag imports
+import org.firstinspires.ftc.robotcore.external.hardware.camera.WebcamName;
+import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
+import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
+import org.firstinspires.ftc.vision.VisionPortal;
+import org.firstinspires.ftc.vision.apriltag.AprilTagDetection;
+import org.firstinspires.ftc.vision.apriltag.AprilTagProcessor;
+
+import java.util.List;
+
 @Config
 @TeleOp(name = "TeleOpDECODESimple", group = "TeleOp")
 public class TeleOpDECODESimple extends LinearOpMode {
@@ -67,6 +77,13 @@ public class TeleOpDECODESimple extends LinearOpMode {
     private boolean conveyorUnstickingActive = false;      // Track if conveyor unsticking is in progress
     private ElapsedTime conveyorUnstickTimer = new ElapsedTime(); // Timer for unsticking sequence
     private boolean conveyorReversePhase = true;           // Track which phase of unsticking (reverse/forward)
+    
+    // AprilTag detection and auto-alignment
+    private VisionPortal visionPortal;
+    private AprilTagProcessor aprilTag;
+    private boolean autoAlignmentActive = false; // Track if auto-alignment is active
+    private ElapsedTime autoAlignmentTimer = new ElapsedTime(); // Timer for alignment timeout
+    private boolean previousA2 = false; // Gamepad2 A button (auto-alignment toggle)
     
     // Indexor position control variables
     private boolean indexorRunningToPosition = false;
@@ -143,10 +160,23 @@ public class TeleOpDECODESimple extends LinearOpMode {
     // Manual control settings
     public static final double JOYSTICK_DEADZONE = 0.1;       // Deadzone for joystick input
     
+    // AprilTag auto-alignment settings
+    public static final int TARGET_TAG_ID = 20; // Blue AprilTag ID
+    public static final double AUTO_ALIGNMENT_TIMEOUT = 5.0;  // Seconds before auto-alignment stops
+    public static final double BEARING_ALIGNMENT_TOLERANCE = 2.0; // degrees - how precise bearing alignment needs to be
+    public static final double BEARING_ALIGNMENT_POWER = 0.02; // proportional control gain for bearing correction
+    public static final double ALIGNMENT_TURN_POWER = 0.3;    // maximum turn power for alignment
+    public static final double ALIGNMENT_DRIVE_POWER = 0.25;  // maximum drive power for alignment
+    public static final double OPTIMAL_SHOOTING_DISTANCE = 24.0; // inches - optimal distance from AprilTag
+    public static final double DISTANCE_TOLERANCE = 6.0;      // inches - acceptable distance variation
+    
     @Override
     public void runOpMode() {
         // Initialize motors
         initializeMotors();
+        
+        // Initialize AprilTag system
+        initializeAprilTag();
         
         // Wait for the game to start (driver presses PLAY)
         telemetry.addData("Status", "DECODE Simple + Intake - Initialized");
@@ -155,6 +185,7 @@ public class TeleOpDECODESimple extends LinearOpMode {
         telemetry.addData("Left Stick", "Drive/Strafe");
         telemetry.addData("Right Stick X", "Turn");
         telemetry.addData("=== GAMEPAD 2 (OPERATOR) ===", "");
+        telemetry.addData("A Button", "🎯 Toggle AprilTag Auto-Alignment");
         telemetry.addData("X Button", "Indexor Forward Movement (+120°)");
         telemetry.addData("Y Button", "Shooter + Servo (Auto-stops Intake)");
         telemetry.addData("B Button", "Auto Fire (Fire → Home)");
@@ -172,6 +203,7 @@ public class TeleOpDECODESimple extends LinearOpMode {
         while (opModeIsActive()) {
             handleControllerInputs();
             handleManualIndexorControl();
+            handleAutoAlignment(); // Handle AprilTag auto-alignment
             handleMecanumDrive();
             checkIndexorStuck();
             handleConveyorUnsticking();
@@ -272,6 +304,7 @@ public class TeleOpDECODESimple extends LinearOpMode {
         boolean currentB1 = gamepad1.b;
         
         // Get current button states for gamepad2 (operator)
+        boolean currentA2 = gamepad2.a;
         boolean currentX2 = gamepad2.x;
         boolean currentY2 = gamepad2.y;
         boolean currentB2 = gamepad2.b;
@@ -301,6 +334,11 @@ public class TeleOpDECODESimple extends LinearOpMode {
             runIndexorToPosition();
         }
         
+        // Handle A button on gamepad2 - Toggle AprilTag Auto-Alignment
+        if (currentA2 && !previousA2) {
+            toggleAutoAlignment();
+        }
+        
         // Handle Y button on gamepad2 - Toggle Shooter
         if (currentY2 && !previousY2) {
             toggleShooter();
@@ -318,6 +356,7 @@ public class TeleOpDECODESimple extends LinearOpMode {
         previousB1 = currentB1;
         
         // Update previous button states for gamepad2
+        previousA2 = currentA2;
         previousX2 = currentX2;
         previousY2 = currentY2;
         previousB2 = currentB2;
@@ -994,6 +1033,163 @@ public class TeleOpDECODESimple extends LinearOpMode {
             manualIndexorControl = false;
             telemetry.addData("🎮 Manual Indexor", "Released - Auto Mode");
             telemetry.addData("Conveyor", "STOPPED - Manual Released");
+        }
+    }
+    
+    private void initializeAprilTag() {
+        // Create the AprilTag processor
+        aprilTag = new AprilTagProcessor.Builder()
+                .setTagFamily(AprilTagProcessor.TagFamily.TAG_36h11)
+                .setOutputUnits(DistanceUnit.INCH, AngleUnit.DEGREES)
+                .setLensIntrinsics(1156.544, 1156.544, 640.0, 360.0) // fx, fy, cx, cy for 1280x720
+                .build();
+
+        // Create the vision portal
+        VisionPortal.Builder builder = new VisionPortal.Builder();
+        builder.setCamera(hardwareMap.get(WebcamName.class, "Webcam 1"));
+        builder.setCameraResolution(new android.util.Size(1280, 720));
+        builder.enableLiveView(true);
+        builder.setAutoStopLiveView(false);
+        builder.addProcessor(aprilTag);
+        
+        // Build the Vision Portal
+        visionPortal = builder.build();
+        
+        telemetry.addData("🎯 AprilTag", "Initialized - Looking for Tag %d", TARGET_TAG_ID);
+        telemetry.update();
+    }
+    
+    private void toggleAutoAlignment() {
+        if (autoAlignmentActive) {
+            // Stop auto-alignment
+            autoAlignmentActive = false;
+            // Stop all drive motors
+            leftFront.setPower(0);
+            rightFront.setPower(0);
+            leftBack.setPower(0);
+            rightBack.setPower(0);
+            telemetry.addData("🎯 Auto-Alignment", "STOPPED by operator");
+        } else {
+            // Start auto-alignment
+            autoAlignmentActive = true;
+            autoAlignmentTimer.reset();
+            telemetry.addData("🎯 Auto-Alignment", "STARTED - Looking for AprilTag %d", TARGET_TAG_ID);
+            telemetry.addData("💡 Tip", "Point camera toward target tag");
+        }
+        telemetry.update();
+    }
+    
+    private void handleAutoAlignment() {
+        // Check if auto-alignment should timeout
+        if (autoAlignmentActive && autoAlignmentTimer.seconds() > AUTO_ALIGNMENT_TIMEOUT) {
+            autoAlignmentActive = false;
+            leftFront.setPower(0);
+            rightFront.setPower(0);
+            leftBack.setPower(0);
+            rightBack.setPower(0);
+            telemetry.addData("🎯 Auto-Alignment", "TIMEOUT - Manual control resumed");
+            return;
+        }
+        
+        // Only run auto-alignment if active
+        if (!autoAlignmentActive) {
+            return;
+        }
+        
+        List<AprilTagDetection> currentDetections = null;
+        boolean targetFound = false;
+        
+        // Check for null processor
+        if (aprilTag == null) {
+            telemetry.addData("❌ Alignment Error", "AprilTag processor is null");
+            autoAlignmentActive = false;
+            return;
+        }
+        
+        try {
+            currentDetections = aprilTag.getDetections();
+        } catch (Exception e) {
+            telemetry.addData("❌ Alignment Error", "Detection exception: %s", e.getMessage());
+            autoAlignmentActive = false;
+            return;
+        }
+        
+        if (currentDetections == null) {
+            telemetry.addData("❌ Alignment Error", "Detection list is null");
+            autoAlignmentActive = false;
+            return;
+        }
+        
+        // Look for the target tag
+        for (AprilTagDetection detection : currentDetections) {
+            if (detection != null && detection.ftcPose != null && detection.id == TARGET_TAG_ID) {
+                targetFound = true;
+                
+                // Get bearing angle (detection angle) - this is what we want to minimize
+                double bearingAngle = detection.ftcPose.bearing;  // Angle to tag in degrees
+                double range = detection.ftcPose.range;           // Distance to tag
+                
+                telemetry.addData("🎯 Target Found", "Tag %d", TARGET_TAG_ID);
+                telemetry.addData("🧭 Bearing Angle", "%.1f degrees", bearingAngle);
+                telemetry.addData("📏 Range", "%.1f inches", range);
+                
+                // Calculate drive powers for bearing-based alignment
+                double turnPower = 0;
+                
+                // Turn to minimize bearing angle
+                if (Math.abs(bearingAngle) > BEARING_ALIGNMENT_TOLERANCE) {
+                    turnPower = bearingAngle * BEARING_ALIGNMENT_POWER;
+                    // Clamp to max power
+                    turnPower = Math.max(-ALIGNMENT_TURN_POWER, 
+                               Math.min(ALIGNMENT_TURN_POWER, turnPower));
+                    
+                    // Add minimum power if error is significant but calculated power is too small
+                    double minTurnPower = 0.12;
+                    if (Math.abs(bearingAngle) > BEARING_ALIGNMENT_TOLERANCE && Math.abs(turnPower) < minTurnPower) {
+                        turnPower = Math.signum(turnPower) * minTurnPower;
+                    }
+                }
+                
+                // Check if aligned
+                boolean aligned = Math.abs(bearingAngle) < BEARING_ALIGNMENT_TOLERANCE;
+                
+                if (aligned) {
+                    // Perfect alignment achieved!
+                    autoAlignmentActive = false;
+                    leftFront.setPower(0);
+                    rightFront.setPower(0);
+                    leftBack.setPower(0);
+                    rightBack.setPower(0);
+                    telemetry.addData("🎯 Auto-Alignment", "✅ PERFECT ALIGNMENT!");
+                    telemetry.addData("🚀 READY", "Optimal position for shooting!");
+                } else {
+                    // Apply alignment movements
+                    double frontLeftPower = turnPower;
+                    double frontRightPower = -turnPower;
+                    double backLeftPower = turnPower;
+                    double backRightPower = -turnPower;
+                    
+                    leftFront.setPower(frontLeftPower);
+                    rightFront.setPower(frontRightPower);
+                    leftBack.setPower(backLeftPower);
+                    rightBack.setPower(backRightPower);
+                    
+                    telemetry.addData("🎯 Auto-Alignment", "⚙️ ALIGNING...");
+                    telemetry.addData("🔧 Turn Power", "%.3f", turnPower);
+                }
+                
+                break; // Found our tag, no need to check others
+            }
+        }
+        
+        if (!targetFound) {
+            // Target tag not found, stop movement
+            leftFront.setPower(0);
+            rightFront.setPower(0);
+            leftBack.setPower(0);
+            rightBack.setPower(0);
+            telemetry.addData("🎯 Auto-Alignment", "⚠️ SEARCHING for AprilTag %d...", TARGET_TAG_ID);
+            telemetry.addData("💡 Help", "Make sure tag is visible and well-lit");
         }
     }
 }
