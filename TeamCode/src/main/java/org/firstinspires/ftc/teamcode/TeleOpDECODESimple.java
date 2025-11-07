@@ -48,6 +48,10 @@ public class TeleOpDECODESimple extends LinearOpMode {
     private ElapsedTime shooterStabilizationTimer = new ElapsedTime(); // Timer for speed stabilization
     private boolean shooterSpeedStable = false; // Track if speed is stable
     
+    // Fast spin-up tracking
+    private ElapsedTime shooterBoostTimer = new ElapsedTime();      // Timer for initial boost phase
+    private boolean shooterBoostPhaseActive = false;               // Track if boost phase is active
+    
     // Trigger servo management
     private boolean manualTriggerControl = false; // Track if trigger is under manual control
     private ElapsedTime triggerManualTimer = new ElapsedTime(); // Timer for manual control timeout
@@ -59,8 +63,17 @@ public class TeleOpDECODESimple extends LinearOpMode {
     private int lastIndexorPosition = 0;
     private boolean indexorStuckDetectionActive = false;
     
+    // Conveyor unsticking sequence variables
+    private boolean conveyorUnstickingActive = false;      // Track if conveyor unsticking is in progress
+    private ElapsedTime conveyorUnstickTimer = new ElapsedTime(); // Timer for unsticking sequence
+    private boolean conveyorReversePhase = true;           // Track which phase of unsticking (reverse/forward)
+    
     // Indexor position control variables
     private boolean indexorRunningToPosition = false;
+    
+    // Global indexor position tracking
+    private int indexorGlobalPosition = 0;                    // Track current global position (0, 1, 2, 3)
+    private int indexorInitialPosition = 0;                   // Store initial encoder position for reference
     
     // Manual indexor control variables
     private boolean manualIndexorControl = false;             // Track if indexor is under manual control
@@ -73,8 +86,13 @@ public class TeleOpDECODESimple extends LinearOpMode {
     public static final double SHOOTER_POWER = 1.0;
     public static final double SHOOTER_SERVO_POWER = 1.0;     // Positive for forward direction
     
-    // Indexor position settings
-    public static final int INDEXOR_TICKS = 179;              // goBILDA 312 RPM motor: 120 degrees = 179 ticks
+    // Indexor position settings - Global positions
+    public static final int INDEXOR_TICKS_PER_120_DEGREES = 179;  // goBILDA 312 RPM motor: 120 degrees = 179 ticks
+    public static final int INDEXOR_POSITION_0 = 0;               // 0 degrees (home position)
+    public static final int INDEXOR_POSITION_1 = 179;             // 120 degrees
+    public static final int INDEXOR_POSITION_2 = 358;             // 240 degrees  
+    public static final int INDEXOR_POSITION_3 = 537;             // 360 degrees
+    public static final int[] INDEXOR_POSITIONS = {INDEXOR_POSITION_0, INDEXOR_POSITION_1, INDEXOR_POSITION_2, INDEXOR_POSITION_3};
     
     // Shooter velocity control (ticks per second)
     public static double SHOOTER_TARGET_VELOCITY = 1300;      // Range: 1200-1800 ticks/sec
@@ -89,6 +107,11 @@ public class TeleOpDECODESimple extends LinearOpMode {
     // Advanced shooter tuning (FTC Dashboard configurable)
     public static double SHOOTER_B_BUTTON_VELOCITY = 1530;         // B button target velocity (configurable)
     public static double SHOOTER_VELOCITY_CORRECTION_FACTOR = 1.02; // Slight overcorrection for consistency
+    
+    // Fast spin-up optimization settings
+    public static double SHOOTER_INITIAL_BOOST_MULTIPLIER = 1.15;   // 15% initial boost for faster ramp-up
+    public static double SHOOTER_BOOST_DURATION = 0.5;             // Seconds to apply initial boost
+    public static double SHOOTER_AGGRESSIVE_RAMP_MULTIPLIER = 1.08; // 8% aggressive ramp for first few seconds
     
     // Speed light control settings (using servo positions for LED control)
     public static final double LIGHT_OFF_POSITION = 0.0;      // Servo position for light off
@@ -106,6 +129,11 @@ public class TeleOpDECODESimple extends LinearOpMode {
     // Stuck detection settings
     public static final double INDEXOR_STUCK_TIMEOUT = 3.0;    // seconds - time before considering indexor stuck
     public static final int INDEXOR_PROGRESS_THRESHOLD = 20;   // minimum ticks of progress required
+    
+    // Conveyor unsticking settings
+    public static final double CONVEYOR_REVERSE_DURATION = 0.3;   // seconds to reverse conveyor when unsticking
+    public static final double CONVEYOR_FORWARD_DURATION = 0.2;   // seconds to run forward after reverse
+    public static final double CONVEYOR_UNSTICK_POWER = -0.8;     // negative for reverse direction
     
     // Mecanum drive settings
     public static final double DRIVE_SPEED_MULTIPLIER = 0.8;  // Max drive speed (0.0 to 1.0)
@@ -127,10 +155,11 @@ public class TeleOpDECODESimple extends LinearOpMode {
         telemetry.addData("Left Stick", "Drive/Strafe");
         telemetry.addData("Right Stick X", "Turn");
         telemetry.addData("=== GAMEPAD 2 (OPERATOR) ===", "");
-        telemetry.addData("X Button", "Indexor + Conveyor (%d ticks)", INDEXOR_TICKS);
+        telemetry.addData("X Button", "Indexor Global Positions (0°→120°→240°→360°)");
         telemetry.addData("Y Button", "Shooter + Servo (Auto-stops Intake)");
         telemetry.addData("B Button", "Auto Fire (Fire → Home)");
         telemetry.addData("", "");
+        telemetry.addData("🎯 INDEXOR GLOBAL", "Current Position: %d (%.0f°)", indexorGlobalPosition, indexorGlobalPosition * 120.0);
         telemetry.addData("Drive Speed", "%.0f%% max", DRIVE_SPEED_MULTIPLIER * 100);
         telemetry.addData("Strafe Speed", "%.0f%% max", STRAFE_SPEED_MULTIPLIER * 100);
         telemetry.addData("Turn Speed", "%.0f%% max", TURN_SPEED_MULTIPLIER * 100);
@@ -145,6 +174,7 @@ public class TeleOpDECODESimple extends LinearOpMode {
             handleManualIndexorControl();
             handleMecanumDrive();
             checkIndexorStuck();
+            handleConveyorUnsticking();
             checkTriggerTimeout();
             handleTriggerAutoFire();
             updateSpeedLight();
@@ -207,13 +237,22 @@ public class TeleOpDECODESimple extends LinearOpMode {
         leftBack.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         rightBack.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         
-        // Reset encoders
+        // Reset encoders and initialize global position
         indexor.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
         intake.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
         conveyor.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
         
-        // Set shooter mode
+        // Initialize indexor global position tracking
+        indexorInitialPosition = indexor.getCurrentPosition(); // Should be 0 after reset
+        indexorGlobalPosition = 0; // Start at position 0 (home position)
+        
+        // Set shooter mode with optimized configuration for fast spin-up
         shooter.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+        
+        // Configure shooter motor for optimal velocity control
+        // These settings help the motor reach target velocity faster
+        shooter.setVelocityPIDFCoefficients(32, 0, 3, 12);  // Aggressive PID for fast ramp-up
+        shooter.setPositionPIDFCoefficients(5.0);            // Standard position PID
         
         // Set mecanum drive motors to run without encoders for teleop
         leftFront.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
@@ -299,6 +338,10 @@ public class TeleOpDECODESimple extends LinearOpMode {
             indexor.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
             indexorStuckDetectionActive = false;
             indexorRunningToPosition = false;
+            
+            // Cancel any active unsticking sequence
+            conveyorUnstickingActive = false;
+            
             telemetry.addData("Intake System", "STOPPED");
         } else {
             // Start all motors: intake, conveyor, and indexor
@@ -308,6 +351,10 @@ public class TeleOpDECODESimple extends LinearOpMode {
             // Reset indexor to BRAKE behavior and start stuck detection
             indexor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
             startIndexorStuckDetection();
+            
+            // Cancel any active unsticking sequence
+            conveyorUnstickingActive = false;
+            
             telemetry.addData("Intake System", "RUNNING");
             telemetry.addData("Intake", "%.1f power", INTAKE_POWER);
             telemetry.addData("Conveyor", "%.1f power", CONVEYOR_POWER);
@@ -328,12 +375,18 @@ public class TeleOpDECODESimple extends LinearOpMode {
             indexorStuckDetectionActive = false;
             indexorRunningToPosition = false;
             
+            // Cancel any active unsticking sequence
+            conveyorUnstickingActive = false;
+            
             telemetry.addData("Indexor", "STOPPED");
         } else {
             // Start indexor with automatic power
             indexor.setPower(AUTO_INDEXOR_POWER);
             indexor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
             startIndexorStuckDetection();
+            
+            // Cancel any active unsticking sequence
+            conveyorUnstickingActive = false;
             
             telemetry.addData("Indexor", "STARTED");
             telemetry.addData("Indexor Power", "%.1f", AUTO_INDEXOR_POWER);
@@ -353,12 +406,15 @@ public class TeleOpDECODESimple extends LinearOpMode {
         // Stop any continuous power mode first
         indexor.setPower(0);
         
+        // Cancel any active unsticking sequence
+        conveyorUnstickingActive = false;
+        
         // Start conveyor to help feed balls through the system
         conveyor.setPower(CONVEYOR_POWER);
         
-        // Calculate target position
-        int currentPosition = indexor.getCurrentPosition();
-        int targetPosition = currentPosition + INDEXOR_TICKS;
+        // Move to next global position (0 -> 1 -> 2 -> 3 -> 0...)
+        indexorGlobalPosition = (indexorGlobalPosition + 1) % 4;
+        int targetPosition = indexorInitialPosition + INDEXOR_POSITIONS[indexorGlobalPosition];
         
         // Reset motor behavior to BRAKE and set to position mode
         indexor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
@@ -370,9 +426,14 @@ public class TeleOpDECODESimple extends LinearOpMode {
         indexorRunningToPosition = true;
         startIndexorStuckDetection();
         
-        telemetry.addData("Indexor Position", "Moving to: %d (from %d)", targetPosition, currentPosition);
+        // Calculate degrees for display
+        int targetDegrees = indexorGlobalPosition * 120;
+        
+        telemetry.addData("🎯 INDEXOR GLOBAL", "Moving to Position %d", indexorGlobalPosition);
+        telemetry.addData("Target Angle", "%d degrees", targetDegrees);
+        telemetry.addData("Target Encoder", "%d ticks", targetPosition);
+        telemetry.addData("Current Encoder", "%d ticks", indexor.getCurrentPosition());
         telemetry.addData("Conveyor", "RUNNING at %.1f power", CONVEYOR_POWER);
-        telemetry.addData("Indexor Ticks", "%d", INDEXOR_TICKS);
         telemetry.update();
     }
     
@@ -410,22 +471,88 @@ public class TeleOpDECODESimple extends LinearOpMode {
             
             // Check if indexor hasn't moved enough (stuck)
             if (positionChange < INDEXOR_PROGRESS_THRESHOLD) {
-                // Indexor is stuck - set to float and stop conveyor
+                // Indexor is stuck - start conveyor unsticking sequence
                 indexor.setPower(0);
                 indexor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
-                conveyor.setPower(0);  // Stop conveyor when stuck
                 indexorStuckDetectionActive = false;
                 indexorRunningToPosition = false;
                 
-                telemetry.addData("⚠️ INDEXOR STUCK", "Set to FLOAT mode");
-                telemetry.addData("⚠️ CONVEYOR", "Stopped due to stuck indexor");
+                // Start conveyor unsticking sequence
+                conveyorUnstickingActive = true;
+                conveyorReversePhase = true; // Start with reverse
+                conveyorUnstickTimer.reset();
+                conveyor.setPower(CONVEYOR_UNSTICK_POWER); // Reverse conveyor
+                
+                telemetry.addData("⚠️ INDEXOR STUCK", "Starting conveyor unstick sequence");
+                telemetry.addData("🔄 CONVEYOR", "REVERSING to unstick (%.1fs)", CONVEYOR_REVERSE_DURATION);
                 telemetry.addData("Position Change", "%d ticks in %.1fs", positionChange, timeElapsed);
-                telemetry.addData("Action", "Motor floating - press X or A to restart");
             } else {
                 // Reset detection timer if making progress
                 indexorTimer.reset();
                 lastIndexorPosition = currentPosition;
             }
+        }
+    }
+    
+    private void handleConveyorUnsticking() {
+        if (!conveyorUnstickingActive) {
+            return; // No unsticking sequence active
+        }
+        
+        double elapsedTime = conveyorUnstickTimer.seconds();
+        
+        if (conveyorReversePhase) {
+            // Phase 1: Reverse conveyor to unstick
+            if (elapsedTime >= CONVEYOR_REVERSE_DURATION) {
+                // Switch to forward phase
+                conveyorReversePhase = false;
+                conveyorUnstickTimer.reset(); // Reset timer for forward phase
+                conveyor.setPower(CONVEYOR_POWER); // Forward direction
+                
+                telemetry.addData("🔄 CONVEYOR", "FORWARD phase (%.1fs)", CONVEYOR_FORWARD_DURATION);
+            }
+        } else {
+            // Phase 2: Forward conveyor briefly
+            if (elapsedTime >= CONVEYOR_FORWARD_DURATION) {
+                // End unsticking sequence
+                conveyorUnstickingActive = false;
+                conveyor.setPower(0); // Stop conveyor
+                
+                telemetry.addData("✅ UNSTICK COMPLETE", "Conveyor sequence finished");
+                telemetry.addData("💡 Action", "Motor floating - press X or A to restart");
+            }
+        }
+    }
+    
+    private void startShooterWithFastSpinUp(double targetVelocity) {
+        // STEP 1: Stop intake system first for safety and performance
+        boolean intakeWasRunning = Math.abs(intake.getPower()) > 0.1;
+        if (intakeWasRunning) {
+            intake.setPower(0);
+            conveyor.setPower(0);
+            indexor.setPower(0);
+            telemetry.addData("🛑 INTAKE", "Auto-stopped for shooter startup");
+        }
+        
+        // STEP 2: Start shooter with fast spin-up technique
+        shooterIntentionallyRunning = true;
+        currentShooterTargetVelocity = targetVelocity;
+        
+        // Initialize fast spin-up sequence
+        shooterBoostPhaseActive = true;
+        shooterBoostTimer.reset();
+        shooterStabilizationTimer.reset();
+        shooterSpeedStable = false;
+        
+        // Apply initial boost for faster ramp-up (15% above target initially)
+        double boostVelocity = targetVelocity * SHOOTER_INITIAL_BOOST_MULTIPLIER;
+        shooter.setVelocity(boostVelocity);
+        shooterServo.setPower(SHOOTER_SERVO_POWER);
+        
+        telemetry.addData("🚀 FAST STARTUP", "Boosting to %.0f ticks/sec", boostVelocity);
+        telemetry.addData("🎯 Target", "%.0f ticks/sec", targetVelocity);
+        if (intakeWasRunning) {
+            telemetry.addData("💡 Note", "Intake was stopped automatically");
         }
     }
     
@@ -436,28 +563,13 @@ public class TeleOpDECODESimple extends LinearOpMode {
             shooter.setPower(0);
             shooterServo.setPower(0);
             shooterIntentionallyRunning = false;
+            shooterBoostPhaseActive = false; // Reset boost phase
             
             telemetry.addData("Shooter System", "STOPPED");
         } else {
-            // STEP 1: Stop intake system first for safety and performance
-            boolean intakeWasRunning = Math.abs(intake.getPower()) > 0.1;
-            if (intakeWasRunning) {
-                intake.setPower(0);
-                conveyor.setPower(0);
-                indexor.setPower(0);
-                telemetry.addData("🛑 INTAKE", "Auto-stopped for shooter startup");
-            }
-            
-            // STEP 2: Start shooter with velocity control and servo
-            shooter.setVelocity(SHOOTER_TARGET_VELOCITY);
-            shooterServo.setPower(SHOOTER_SERVO_POWER);
-            shooterIntentionallyRunning = true;
-            currentShooterTargetVelocity = SHOOTER_TARGET_VELOCITY;
-            
-            telemetry.addData("Shooter System", "RUNNING at %.0f ticks/sec", SHOOTER_TARGET_VELOCITY);
-            if (intakeWasRunning) {
-                telemetry.addData("💡 Note", "Intake was stopped automatically");
-            }
+            // Start shooter with fast spin-up
+            startShooterWithFastSpinUp(SHOOTER_TARGET_VELOCITY);
+            telemetry.addData("Shooter System", "FAST STARTUP at %.0f ticks/sec", SHOOTER_TARGET_VELOCITY);
         }
         telemetry.update();
     }
@@ -470,33 +582,14 @@ public class TeleOpDECODESimple extends LinearOpMode {
             shooterServo.setPower(0);
             shooterIntentionallyRunning = false;
             shooterSpeedStable = false; // Reset stability status
+            shooterBoostPhaseActive = false; // Reset boost phase
             
             telemetry.addData("Shooter System", "STOPPED");
         } else {
-            // STEP 1: Stop intake system first for safety and performance
-            boolean intakeWasRunning = Math.abs(intake.getPower()) > 0.1;
-            if (intakeWasRunning) {
-                intake.setPower(0);
-                conveyor.setPower(0);
-                indexor.setPower(0);
-                telemetry.addData("🛑 INTAKE", "Auto-stopped for shooter startup");
-            }
-            
-            // STEP 2: Start shooter with velocity control and servo at configurable speed
-            shooter.setVelocity(SHOOTER_B_BUTTON_VELOCITY);
-            shooterServo.setPower(SHOOTER_SERVO_POWER);
-            shooterIntentionallyRunning = true;
-            currentShooterTargetVelocity = SHOOTER_B_BUTTON_VELOCITY;
-            
-            // Reset stabilization tracking
-            shooterStabilizationTimer.reset();
-            shooterSpeedStable = false;
-            
-            telemetry.addData("Shooter System", "RUNNING at %.0f ticks/sec", SHOOTER_B_BUTTON_VELOCITY);
-            telemetry.addData("Status", "🟡 Stabilizing speed...");
-            if (intakeWasRunning) {
-                telemetry.addData("💡 Note", "Intake was stopped automatically");
-            }
+            // Start shooter with fast spin-up at high velocity
+            startShooterWithFastSpinUp(SHOOTER_B_BUTTON_VELOCITY);
+            telemetry.addData("Shooter System", "FAST STARTUP at %.0f ticks/sec", SHOOTER_B_BUTTON_VELOCITY);
+            telemetry.addData("Status", "� Fast ramp-up active...");
         }
         telemetry.update();
     }
@@ -509,33 +602,14 @@ public class TeleOpDECODESimple extends LinearOpMode {
             shooterServo.setPower(0);
             shooterIntentionallyRunning = false;
             shooterSpeedStable = false; // Reset stability status
+            shooterBoostPhaseActive = false; // Reset boost phase
             
             telemetry.addData("Shooter System", "STOPPED");
         } else {
-            // STEP 1: Stop intake system first for safety and performance
-            boolean intakeWasRunning = Math.abs(intake.getPower()) > 0.1;
-            if (intakeWasRunning) {
-                intake.setPower(0);
-                conveyor.setPower(0);
-                indexor.setPower(0);
-                telemetry.addData("🛑 INTAKE", "Auto-stopped for shooter startup");
-            }
-            
-            // STEP 2: Start shooter with velocity control and servo at 1300 ticks/sec
-            shooter.setVelocity(1300);
-            shooterServo.setPower(SHOOTER_SERVO_POWER);
-            shooterIntentionallyRunning = true;
-            currentShooterTargetVelocity = 1300;
-            
-            // Reset stabilization tracking
-            shooterStabilizationTimer.reset();
-            shooterSpeedStable = false;
-            
-            telemetry.addData("Shooter System", "RUNNING at 1300 ticks/sec");
-            telemetry.addData("Status", "🟡 Stabilizing speed...");
-            if (intakeWasRunning) {
-                telemetry.addData("💡 Note", "Intake was stopped automatically");
-            }
+            // Start shooter with fast spin-up at 1300 ticks/sec
+            startShooterWithFastSpinUp(1300);
+            telemetry.addData("Shooter System", "FAST STARTUP at 1300 ticks/sec");
+            telemetry.addData("Status", "� Fast ramp-up active...");
         }
         telemetry.update();
     }
@@ -543,14 +617,36 @@ public class TeleOpDECODESimple extends LinearOpMode {
     private void monitorShooterSpeed() {
         if (!shooterIntentionallyRunning) {
             shooterSpeedStable = false;
+            shooterBoostPhaseActive = false;
             return;
         }
         
         double currentVelocity = shooter.getVelocity();
         double speedError = Math.abs(currentVelocity - currentShooterTargetVelocity);
         double stabilizationTime = shooterStabilizationTimer.seconds();
+        double boostTime = shooterBoostTimer.seconds();
         
-        // Check if speed is within tolerance
+        // Handle boost phase for fast startup
+        if (shooterBoostPhaseActive) {
+            if (boostTime >= SHOOTER_BOOST_DURATION) {
+                // End boost phase, transition to target velocity
+                shooterBoostPhaseActive = false;
+                shooter.setVelocity(currentShooterTargetVelocity);
+                telemetry.addData("🎯 BOOST COMPLETE", "Transitioning to target velocity");
+            } else if (boostTime > 0.1) { // Small delay to avoid immediate check
+                // Check if we're getting close to target during boost
+                double targetSpeedPercentage = currentVelocity / currentShooterTargetVelocity;
+                if (targetSpeedPercentage >= 0.9) {
+                    // We're at 90%+ of target speed, end boost early
+                    shooterBoostPhaseActive = false;
+                    shooter.setVelocity(currentShooterTargetVelocity);
+                    telemetry.addData("🎯 EARLY BOOST END", "Target reached fast!");
+                }
+            }
+            return; // Skip normal monitoring during boost phase
+        }
+        
+        // Normal speed monitoring (post-boost)
         boolean speedWithinTolerance = speedError <= SHOOTER_SPEED_TOLERANCE;
         
         if (speedWithinTolerance && stabilizationTime >= SHOOTER_STABILIZATION_TIME) {
@@ -706,8 +802,17 @@ public class TeleOpDECODESimple extends LinearOpMode {
             // Speed stabilization status
             double stabilizationTime = shooterStabilizationTimer.seconds();
             double speedError = Math.abs(shooter.getVelocity() - currentShooterTargetVelocity);
+            double boostTime = shooterBoostTimer.seconds();
             
-            if (shooterSpeedStable) {
+            if (shooterBoostPhaseActive) {
+                double boostTimeLeft = SHOOTER_BOOST_DURATION - boostTime;
+                double currentBoostVelocity = currentShooterTargetVelocity * SHOOTER_INITIAL_BOOST_MULTIPLIER;
+                telemetry.addData("🚀 FAST STARTUP", "Boost phase (%.1fs left)", boostTimeLeft);
+                telemetry.addData("🔥 Boost Velocity", "%.0f ticks/sec (%.0f%% above target)", 
+                    currentBoostVelocity, (SHOOTER_INITIAL_BOOST_MULTIPLIER - 1) * 100);
+                telemetry.addData("⚡ Speed Progress", "%.1f%% of target reached", 
+                    (shooter.getVelocity() / currentShooterTargetVelocity) * 100);
+            } else if (shooterSpeedStable) {
                 telemetry.addData("🎯 STABILITY", "STABLE - Ready to shoot!");
                 telemetry.addData("✅ SPEED STATUS", "Optimal & consistent");
             } else if (stabilizationTime < SHOOTER_STABILIZATION_TIME) {
@@ -756,11 +861,28 @@ public class TeleOpDECODESimple extends LinearOpMode {
             }
         }
         
+        // Show indexor global position and status
+        telemetry.addData("🎯 INDEXOR GLOBAL", "Position %d (%.0f°)", indexorGlobalPosition, indexorGlobalPosition * 120.0);
+        telemetry.addData("Next Position", "Position %d (%.0f°)", (indexorGlobalPosition + 1) % 4, ((indexorGlobalPosition + 1) % 4) * 120.0);
+        
         // Show stuck detection status
-        if (indexorRunningToPosition) {
-            telemetry.addData("Indexor Mode", "POSITION CONTROL");
-            telemetry.addData("Current Position", "%d", indexor.getCurrentPosition());
-            telemetry.addData("Target Position", "%d", indexor.getTargetPosition());
+        if (conveyorUnstickingActive) {
+            // Show unsticking sequence status
+            double timeElapsed = conveyorUnstickTimer.seconds();
+            if (conveyorReversePhase) {
+                double timeLeft = CONVEYOR_REVERSE_DURATION - timeElapsed;
+                telemetry.addData("🔄 UNSTICKING", "REVERSING conveyor (%.1fs left)", timeLeft);
+                telemetry.addData("Conveyor Power", "%.2f (REVERSE)", CONVEYOR_UNSTICK_POWER);
+            } else {
+                double timeLeft = CONVEYOR_FORWARD_DURATION - timeElapsed;
+                telemetry.addData("🔄 UNSTICKING", "FORWARD conveyor (%.1fs left)", timeLeft);
+                telemetry.addData("Conveyor Power", "%.2f (FORWARD)", CONVEYOR_POWER);
+            }
+            telemetry.addData("Indexor Status", "FLOATING (stuck detected)");
+        } else if (indexorRunningToPosition) {
+            telemetry.addData("Indexor Mode", "GLOBAL POSITION CONTROL");
+            telemetry.addData("Current Position", "%d ticks", indexor.getCurrentPosition());
+            telemetry.addData("Target Position", "%d ticks", indexor.getTargetPosition());
             telemetry.addData("Is Busy", "%s", indexor.isBusy() ? "YES" : "NO");
         } else if (indexorStuckDetectionActive) {
             int currentPos = indexor.getCurrentPosition();
@@ -805,6 +927,10 @@ public class TeleOpDECODESimple extends LinearOpMode {
                     indexorRunningToPosition = false;
                     telemetry.addData("Indexor", "Manual control override");
                 }
+                
+                // Cancel any active unsticking sequence
+                conveyorUnstickingActive = false;
+                
                 manualIndexorControl = true;
             }
             
