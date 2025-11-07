@@ -83,9 +83,9 @@ public class AutoBlueFront extends LinearOpMode {
         telemetry.addData("Position", "FRONT");
         telemetry.addData("Start Pose", "X: %.1f\", Y: %.1f\", H: %.1f°", START_POSE.position.x, START_POSE.position.y, Math.toDegrees(START_POSE.heading.toDouble()));
         telemetry.addData("=== AUTONOMOUS SEQUENCE ===", "");
-        telemetry.addData("1.", "Move rearward 32 inches using Road Runner");
+        telemetry.addData("1.", "Move left 32 inches using Road Runner");
         telemetry.addData("2.", "Start shooter + fire 3 shots");
-        telemetry.addData("3.", "Move left 12 inches using Road Runner");
+        telemetry.addData("3.", "Move left 12 inches more using Road Runner");
         telemetry.addData("", "");
         telemetry.addData("Shooter Speed", "%.0f ticks/sec", SHOOTER_TARGET_VELOCITY);
         telemetry.addData("Alliance Light", "🔵 Blue indicator");
@@ -107,19 +107,19 @@ public class AutoBlueFront extends LinearOpMode {
         
         // Create trajectories
         Action moveRearward = drive.actionBuilder(START_POSE)
-                .lineToY(START_POSE.position.y - REARWARD_DISTANCE)  // Move rearward 32 inches
+                .lineToX(START_POSE.position.x - REARWARD_DISTANCE)  // Move left 32 inches
                 .build();
         
-        Action moveLeft = drive.actionBuilder(new Pose2d(START_POSE.position.x, START_POSE.position.y - REARWARD_DISTANCE, START_POSE.heading.toDouble()))
-                .lineToX(START_POSE.position.x - LEFTWARD_DISTANCE)  // Move left 12 inches (orthogonal to Y axis)
+        Action moveLeft = drive.actionBuilder(new Pose2d(START_POSE.position.x - REARWARD_DISTANCE, START_POSE.position.y, START_POSE.heading.toDouble()))
+                .lineToX(START_POSE.position.x - REARWARD_DISTANCE - LEFTWARD_DISTANCE)  // Move left 12 inches more (total 44" left)
                 .build();
         
-        // Step 1: Move rearward 32 inches
-        telemetry.addData("🚀 STEP 1", "Moving rearward %.1f inches...", REARWARD_DISTANCE);
+        // Step 1: Move left 32 inches
+        telemetry.addData("🚀 STEP 1", "Moving left %.1f inches...", REARWARD_DISTANCE);
         telemetry.update();
         Actions.runBlocking(moveRearward);
         
-        telemetry.addData("✅ STEP 1", "Rearward movement completed");
+        telemetry.addData("✅ STEP 1", "Left movement completed");
         telemetry.update();
         sleep(500);
         
@@ -139,14 +139,14 @@ public class AutoBlueFront extends LinearOpMode {
         
         stopShooterSystem();
         
-        // Step 3: Move left 12 inches
-        telemetry.addData("🚀 STEP 3", "Moving left %.1f inches...", LEFTWARD_DISTANCE);
+        // Step 3: Move left 12 inches more
+        telemetry.addData("🚀 STEP 3", "Moving left %.1f inches more...", LEFTWARD_DISTANCE);
         telemetry.update();
         Actions.runBlocking(moveLeft);
         
         telemetry.addData("✅ AUTONOMOUS", "Blue Front Road Runner sequence completed!");
         telemetry.addData("🔵 Alliance", "BLUE");
-        telemetry.addData("📍 Final Position", "32\" rearward, 12\" left from start");
+        telemetry.addData("📍 Final Position", "44\" left from start (32\" + 12\")");
         telemetry.addData("🎯 Shots Fired", "3 shots");
         telemetry.addData("⏱️ Status", "Autonomous finished");
         telemetry.update();

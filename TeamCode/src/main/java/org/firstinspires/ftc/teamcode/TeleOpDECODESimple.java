@@ -730,10 +730,45 @@ public class TeleOpDECODESimple extends LinearOpMode {
             triggerServo.setPosition(TRIGGER_HOME);
             triggerAutoFireSequence = false;
             
+            // Move indexor to next position after trigger sequence completes
+            moveIndexorAfterTrigger();
+            
             telemetry.addData("🏠 AUTO RETURN", "Trigger returned to HOME position (137°)");
             telemetry.addData("✅ COMPLETE", "Fire sequence finished");
+            telemetry.addData("🔄 INDEXOR", "Moving to next position...");
             telemetry.update();
         }
+    }
+    
+    private void moveIndexorAfterTrigger() {
+        // Check if manual control is active - don't allow automatic positioning
+        if (manualIndexorControl) {
+            telemetry.addData("🎮 Indexor Blocked", "Manual joystick control is active");
+            return;
+        }
+        
+        // Stop any continuous power mode first
+        indexor.setPower(0);
+        
+        // Cancel any active unsticking sequence
+        conveyorUnstickingActive = false;
+        
+        // Start conveyor to help feed balls through the system
+        conveyor.setPower(CONVEYOR_POWER);
+        
+        // Move forward by 120 degrees (179 ticks) from current position
+        int currentPosition = indexor.getCurrentPosition();
+        int targetPosition = currentPosition + INDEXOR_TICKS_PER_120_DEGREES;
+        
+        // Reset motor behavior to BRAKE and set to position mode
+        indexor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+        indexor.setTargetPosition(targetPosition);
+        indexor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+        indexor.setPower(AUTO_INDEXOR_POWER);
+        
+        // Start tracking
+        indexorRunningToPosition = true;
+        startIndexorStuckDetection();
     }
     
     private void handleMecanumDrive() {
