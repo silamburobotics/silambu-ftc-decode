@@ -809,11 +809,11 @@ public class TeleOpDECODESimple extends LinearOpMode {
             }
             
             // Set manual indexor power (slow movement)
-            double indexorPower = joystickY * MANUAL_INDEXOR_POWER;
+            double indexorPower = Math.abs(joystickY) * MANUAL_INDEXOR_POWER;
             indexor.setPower(indexorPower);
             
             // Start conveyor when joystick is active
-            conveyor.setPower(CONVEYOR_POWER);
+            conveyor.setPower(joystickY/Math.abs(joystickY)*CONVEYOR_POWER);
             
             // Add telemetry for manual control
             telemetry.addData("🎮 Manual Indexor", "Active - Left Joystick");
