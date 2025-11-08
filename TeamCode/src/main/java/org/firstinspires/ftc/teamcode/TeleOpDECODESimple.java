@@ -1090,19 +1090,23 @@ public class TeleOpDECODESimple extends LinearOpMode {
             double indexorPower = Math.abs(joystickY) * MANUAL_INDEXOR_POWER;
             indexor.setPower(indexorPower);
             
-            // Start conveyor when joystick is active
+            // Start conveyor matching joystick direction
             conveyor.setPower(joystickY/Math.abs(joystickY)*CONVEYOR_POWER);
             
-            // Start intake to help feed balls into the system
-            intake.setPower(INTAKE_POWER);
+            // Start intake matching conveyor direction (same as joystick direction)
+            intake.setPower(joystickY/Math.abs(joystickY)*INTAKE_POWER);
             
             // Add telemetry for manual control
             telemetry.addData("🎮 Manual Indexor", "Active - Left Joystick");
             telemetry.addData("Joystick Y", "%.3f", joystickY);
             telemetry.addData("Indexor Power", "%.2f (%.0f%%)", indexorPower, indexorPower * 100);
-            telemetry.addData("Conveyor", "RUNNING at %.2f power", CONVEYOR_POWER);
-            telemetry.addData("Intake", "RUNNING at %.2f power", INTAKE_POWER);
-            telemetry.addData("Control Mode", "MANUAL - Slow Movement");
+            double conveyorDirection = joystickY/Math.abs(joystickY)*CONVEYOR_POWER;
+            double intakeDirection = joystickY/Math.abs(joystickY)*INTAKE_POWER;
+            telemetry.addData("Conveyor", "%s at %.2f power", 
+                conveyorDirection > 0 ? "FORWARD" : "REVERSE", Math.abs(conveyorDirection));
+            telemetry.addData("Intake", "%s at %.2f power", 
+                intakeDirection > 0 ? "FORWARD" : "REVERSE", Math.abs(intakeDirection));
+            telemetry.addData("Control Mode", "MANUAL - Directional Control");
             
         } else if (manualIndexorControl) {
             // Joystick released - stop indexor, conveyor, intake and return to automatic mode
