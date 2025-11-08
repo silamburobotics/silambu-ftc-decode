@@ -95,10 +95,8 @@ public class TeleOpDECODESimple extends LinearOpMode {
     
     // Indexor position control variables
     private boolean indexorRunningToPosition = false;
-    
-    // Global indexor position tracking
-    private int indexorGlobalPosition = 0;                    // Track position count (MOD-based precise positioning)
     private int indexorInitialPosition = 0;                   // Store initial encoder position for reference
+    private double previousIndexorPosition = 0.0;             // Last successful indexor position (precise double)
     
     // Manual indexor control variables
     private boolean manualIndexorControl = false;             // Track if indexor is under manual control
@@ -214,17 +212,24 @@ public class TeleOpDECODESimple extends LinearOpMode {
         
         // Wait for the game to start (driver presses PLAY)
         telemetry.addData("Status", "DECODE Simple + Intake - Initialized");
-        telemetry.addData("=== GAMEPAD 1 (DRIVER) ===", "");
+        telemetry.addData("🔄 Indexor Position", "Preserved from Auto: %d ticks", indexorInitialPosition);
+        telemetry.addData("", "");
         telemetry.addData("A Button", "Intake + Conveyor + Indexor");
         telemetry.addData("Left Stick", "Drive/Strafe");
         telemetry.addData("Right Stick X", "Turn");
         telemetry.addData("=== GAMEPAD 2 (OPERATOR) ===", "");
         telemetry.addData("A Button", "🎯 Toggle AprilTag Auto-Alignment");
-        telemetry.addData("X Button", "Indexor MOD-based Advance (179.23°)");
+        telemetry.addData("X Button", "Indexor Intended Advance (179 ticks)");
         telemetry.addData("Y Button", "Shooter + Servo (Auto-stops Intake)");
         telemetry.addData("B Button", "Auto Fire (Fire → Home)");
         telemetry.addData("", "");
-        telemetry.addData("🎯 INDEXOR GLOBAL", "Current Position: %d (%.0f°)", indexorGlobalPosition, indexorGlobalPosition * 120.0);
+        // Show previous position logic and actual current position with precise values
+        int currentPosition = indexor.getCurrentPosition();
+        int logicalPosition = (int) Math.round(previousIndexorPosition / INDEXOR_DENOMINATOR);
+        telemetry.addData("🎯 INDEXOR PRECISE", "Logical: %d (%.2f precise ticks)", 
+            logicalPosition, previousIndexorPosition);
+        telemetry.addData("📍 ACTUAL ENCODER", "Current: %d (Offset: %+.2f)", 
+            currentPosition, currentPosition - previousIndexorPosition);
         telemetry.addData("Drive Speed", "%.0f%% max", DRIVE_SPEED_MULTIPLIER * 100);
         telemetry.addData("Strafe Speed", "%.0f%% max", STRAFE_SPEED_MULTIPLIER * 100);
         telemetry.addData("Turn Speed", "%.0f%% max", TURN_SPEED_MULTIPLIER * 100);
@@ -325,14 +330,17 @@ public class TeleOpDECODESimple extends LinearOpMode {
         leftBack.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         rightBack.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         
-        // Reset encoders and initialize global position
-        indexor.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+        // Reset encoders (EXCEPT indexor - preserve autonomous position)
+        // indexor.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);  // COMMENTED OUT to preserve auto position
+        indexor.setMode(DcMotor.RunMode.RUN_USING_ENCODER);         // Use encoder without resetting
         intake.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
         conveyor.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
         
-        // Initialize indexor global position tracking
-        indexorInitialPosition = indexor.getCurrentPosition(); // Should be 0 after reset
-        indexorGlobalPosition = 0; // Start at position 0 (home position)
+        // Initialize indexor position tracking (preserve autonomous position)
+        indexorInitialPosition = indexor.getCurrentPosition(); // Get current position from autonomous
+        previousIndexorPosition = (double) indexorInitialPosition; // Initialize previous position with precise double
+        
+        telemetry.addData("🔧 INDEXOR INIT", "Preserving position from autonomous: %d ticks", indexorInitialPosition);
         
         // Set shooter mode with optimized configuration for fast spin-up
         shooter.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
@@ -474,23 +482,10 @@ public class TeleOpDECODESimple extends LinearOpMode {
         // Start conveyor to help feed balls through the system
         conveyor.setPower(CONVEYOR_POWER);
         
-        // Get current encoder position and calculate next position using MOD logic
+        // Use previousIndexorPosition for robust advancement with precise double calculation
         int currentPosition = indexor.getCurrentPosition();
-        double remainder = currentPosition % INDEXOR_DENOMINATOR;
-        int nextIncrement = (int) Math.round(INDEXOR_DENOMINATOR - remainder);
-        if (nextIncrement == 0) {
-            nextIncrement = (int) Math.round(INDEXOR_DENOMINATOR); // If exactly on position, move to next
-        }
-        
-        // If remainder is above 150, add one more denominator (skip to next-next position)
-        if (remainder > 150) {
-            nextIncrement += (int) Math.round(INDEXOR_DENOMINATOR);
-        }
-        
-        int targetPosition = currentPosition + nextIncrement;
-        
-        // Update global position for tracking (increment for telemetry)
-        indexorGlobalPosition = indexorGlobalPosition + 1;
+        double targetPositionPrecise = previousIndexorPosition + INDEXOR_DENOMINATOR; // Use precise 179.23
+        int targetPosition = (int) Math.round(targetPositionPrecise); // Round for motor target
         
         // Reset motor behavior to FLOAT and set to position mode
         indexor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
@@ -498,14 +493,16 @@ public class TeleOpDECODESimple extends LinearOpMode {
         indexor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
         indexor.setPower(AUTO_INDEXOR_POWER);
         
+        // Update previousIndexorPosition with precise value (not rounded)
+        previousIndexorPosition = targetPositionPrecise;
+        
         // Start tracking
         indexorRunningToPosition = true;
         startIndexorStuckDetection();
         
-        telemetry.addData("🎯 INDEXOR MOD CALC", "Current: %d, Remainder: %.1f, Next: +%d%s", 
-            currentPosition, remainder, nextIncrement, remainder > 150 ? " (Skip)" : "");
-        telemetry.addData("Target Position", "%d ticks (Global: %d)", targetPosition, indexorGlobalPosition);
-        telemetry.addData("Movement", "MOD-based precise positioning (FLOAT)");
+        telemetry.addData("🎯 INDEXOR ADVANCE", "Prev: %.2f, Target: %d (%.2f), Current: %d", 
+            previousIndexorPosition - INDEXOR_DENOMINATOR, targetPosition, targetPositionPrecise, currentPosition);
+        telemetry.addData("Movement", "Precise double calculation (179.23 ticks)");
         telemetry.addData("Conveyor", "RUNNING at %.1f power", CONVEYOR_POWER);
         telemetry.update();
     }
@@ -839,23 +836,10 @@ public class TeleOpDECODESimple extends LinearOpMode {
         // Start conveyor to help feed balls through the system
         conveyor.setPower(CONVEYOR_POWER);
         
-        // Get current encoder position and calculate next position using MOD logic
+        // Use same previousIndexorPosition logic as X button with precise calculation
         int currentPosition = indexor.getCurrentPosition();
-        double remainder = currentPosition % INDEXOR_DENOMINATOR;
-        int nextIncrement = (int) Math.round(INDEXOR_DENOMINATOR - remainder);
-        if (nextIncrement == 0) {
-            nextIncrement = (int) Math.round(INDEXOR_DENOMINATOR); // If exactly on position, move to next
-        }
-        
-        // If remainder is above 150, add one more denominator (skip to next-next position)
-        if (remainder > 150) {
-            nextIncrement += (int) Math.round(INDEXOR_DENOMINATOR);
-        }
-        
-        int targetPosition = currentPosition + nextIncrement;
-        
-        // Update global position for tracking (increment for telemetry)
-        indexorGlobalPosition = indexorGlobalPosition + 1;
+        double targetPositionPrecise = previousIndexorPosition + INDEXOR_DENOMINATOR; // Use precise 179.23
+        int targetPosition = (int) Math.round(targetPositionPrecise); // Round for motor target
         
         // Reset motor behavior to FLOAT and set to position mode
         indexor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
@@ -863,12 +847,18 @@ public class TeleOpDECODESimple extends LinearOpMode {
         indexor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
         indexor.setPower(AUTO_INDEXOR_POWER);
         
+        // Update previousIndexorPosition with precise value (not rounded)
+        previousIndexorPosition = targetPositionPrecise;
+        
         // Start tracking
         indexorRunningToPosition = true;
         startIndexorStuckDetection();
         
-        telemetry.addData("🔄 TRIGGER INDEXOR", "Current: %d, Target: %d (+%d)%s", 
-            currentPosition, targetPosition, nextIncrement, remainder > 150 ? " Skip" : "");
+        telemetry.addData("🔄 TRIGGER RECOVERY", "After trigger: %d → %d (%.2f precise)", 
+            currentPosition, targetPosition, targetPositionPrecise);
+        telemetry.addData("Previous Position", "Based on precise calculation: %.2f", 
+            previousIndexorPosition - INDEXOR_DENOMINATOR);
+    }
     }
     
     private void handleMecanumDrive() {
