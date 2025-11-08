@@ -1093,21 +1093,21 @@ public class TeleOpDECODESimple extends LinearOpMode {
             // Start conveyor matching joystick direction
             conveyor.setPower(joystickY/Math.abs(joystickY)*CONVEYOR_POWER);
             
-            // Start intake opposite to conveyor direction (due to different motor direction settings)
-            // Conveyor is REVERSE direction, Intake is FORWARD direction, so they need opposite powers
-            intake.setPower(-(joystickY/Math.abs(joystickY))*INTAKE_POWER);
+            // Start intake in same direction as conveyor (reversing from previous synchronized behavior)
+            // Conveyor is REVERSE direction, Intake is FORWARD direction, but using same power direction
+            intake.setPower(joystickY/Math.abs(joystickY)*INTAKE_POWER);
             
             // Add telemetry for manual control
             telemetry.addData("🎮 Manual Indexor", "Active - Left Joystick");
             telemetry.addData("Joystick Y", "%.3f", joystickY);
             telemetry.addData("Indexor Power", "%.2f (%.0f%%)", indexorPower, indexorPower * 100);
             double conveyorDirection = joystickY/Math.abs(joystickY)*CONVEYOR_POWER;
-            double intakeDirection = -(joystickY/Math.abs(joystickY))*INTAKE_POWER; // Updated to match actual direction
+            double intakeDirection = joystickY/Math.abs(joystickY)*INTAKE_POWER; // Now using same power direction
             telemetry.addData("Conveyor", "%s at %.2f power", 
                 conveyorDirection > 0 ? "FORWARD" : "REVERSE", Math.abs(conveyorDirection));
-            telemetry.addData("Intake", "%s at %.2f power (synchronized)", 
+            telemetry.addData("Intake", "%s at %.2f power (reversed direction)", 
                 intakeDirection > 0 ? "FORWARD" : "REVERSE", Math.abs(intakeDirection));
-            telemetry.addData("Control Mode", "MANUAL - Synchronized Direction Control");
+            telemetry.addData("Control Mode", "MANUAL - Intake Direction Reversed");
             
         } else if (manualIndexorControl) {
             // Joystick released - stop indexor, conveyor, intake and return to automatic mode
