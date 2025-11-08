@@ -1093,20 +1093,21 @@ public class TeleOpDECODESimple extends LinearOpMode {
             // Start conveyor matching joystick direction
             conveyor.setPower(joystickY/Math.abs(joystickY)*CONVEYOR_POWER);
             
-            // Start intake matching conveyor direction (same as joystick direction)
-            intake.setPower(joystickY/Math.abs(joystickY)*INTAKE_POWER);
+            // Start intake opposite to conveyor direction (due to different motor direction settings)
+            // Conveyor is REVERSE direction, Intake is FORWARD direction, so they need opposite powers
+            intake.setPower(-(joystickY/Math.abs(joystickY))*INTAKE_POWER);
             
             // Add telemetry for manual control
             telemetry.addData("🎮 Manual Indexor", "Active - Left Joystick");
             telemetry.addData("Joystick Y", "%.3f", joystickY);
             telemetry.addData("Indexor Power", "%.2f (%.0f%%)", indexorPower, indexorPower * 100);
             double conveyorDirection = joystickY/Math.abs(joystickY)*CONVEYOR_POWER;
-            double intakeDirection = joystickY/Math.abs(joystickY)*INTAKE_POWER;
+            double intakeDirection = -(joystickY/Math.abs(joystickY))*INTAKE_POWER; // Updated to match actual direction
             telemetry.addData("Conveyor", "%s at %.2f power", 
                 conveyorDirection > 0 ? "FORWARD" : "REVERSE", Math.abs(conveyorDirection));
-            telemetry.addData("Intake", "%s at %.2f power", 
+            telemetry.addData("Intake", "%s at %.2f power (synchronized)", 
                 intakeDirection > 0 ? "FORWARD" : "REVERSE", Math.abs(intakeDirection));
-            telemetry.addData("Control Mode", "MANUAL - Directional Control");
+            telemetry.addData("Control Mode", "MANUAL - Synchronized Direction Control");
             
         } else if (manualIndexorControl) {
             // Joystick released - stop indexor, conveyor, intake and return to automatic mode
