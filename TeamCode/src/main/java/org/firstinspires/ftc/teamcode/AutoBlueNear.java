@@ -69,7 +69,7 @@ public class AutoBlueNear extends LinearOpMode {
     
     // Autonomous timing settings
     public static final double TRIGGER_FIRE_DURATION = 0.5;   // Seconds to stay in fire position
-    public static final double WAIT_BETWEEN_SHOTS = 1.0;      // Seconds to wait between shots
+    public static final double WAIT_BETWEEN_SHOTS = 3.0;      // Seconds to wait between shots (stabilization)
     public static final double INDEXOR_MOVE_TIMEOUT = 3.0;    // Maximum time to wait for indexor movement
     public static final double SHOOTER_SPINUP_TIMEOUT = 5.0;  // Maximum time to wait for shooter to reach speed
     

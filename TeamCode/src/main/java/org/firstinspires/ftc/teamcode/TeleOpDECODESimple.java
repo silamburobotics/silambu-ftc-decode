@@ -1045,20 +1045,26 @@ public class TeleOpDECODESimple extends LinearOpMode {
             // Start conveyor when joystick is active
             conveyor.setPower(joystickY/Math.abs(joystickY)*CONVEYOR_POWER);
             
+            // Start intake to help feed balls into the system
+            intake.setPower(INTAKE_POWER);
+            
             // Add telemetry for manual control
             telemetry.addData("🎮 Manual Indexor", "Active - Left Joystick");
             telemetry.addData("Joystick Y", "%.3f", joystickY);
             telemetry.addData("Indexor Power", "%.2f (%.0f%%)", indexorPower, indexorPower * 100);
             telemetry.addData("Conveyor", "RUNNING at %.2f power", CONVEYOR_POWER);
+            telemetry.addData("Intake", "RUNNING at %.2f power", INTAKE_POWER);
             telemetry.addData("Control Mode", "MANUAL - Slow Movement");
             
         } else if (manualIndexorControl) {
-            // Joystick released - stop indexor, conveyor and return to automatic mode
+            // Joystick released - stop indexor, conveyor, intake and return to automatic mode
             indexor.setPower(0);
             conveyor.setPower(0);
+            intake.setPower(0);
             manualIndexorControl = false;
             telemetry.addData("🎮 Manual Indexor", "Released - Auto Mode");
             telemetry.addData("Conveyor", "STOPPED - Manual Released");
+            telemetry.addData("Intake", "STOPPED - Manual Released");
         }
     }
     
