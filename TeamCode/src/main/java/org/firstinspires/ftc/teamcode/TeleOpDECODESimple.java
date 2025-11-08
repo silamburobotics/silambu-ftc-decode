@@ -8,6 +8,9 @@ import com.qualcomm.robotcore.hardware.DcMotorEx;
 import com.qualcomm.robotcore.hardware.DcMotorSimple;
 import com.qualcomm.robotcore.hardware.CRServo;
 import com.qualcomm.robotcore.hardware.Servo;
+import com.qualcomm.robotcore.hardware.NormalizedColorSensor;
+import com.qualcomm.robotcore.hardware.NormalizedRGBA;
+import com.qualcomm.robotcore.hardware.SwitchableLight;
 import com.qualcomm.robotcore.util.ElapsedTime;
 
 // AprilTag imports
@@ -34,6 +37,11 @@ public class TeleOpDECODESimple extends LinearOpMode {
     private CRServo shooterServo;
     private Servo speedLight;
     private Servo triggerServo;
+    
+    // Declare color sensors for ball detection and intake management
+    private NormalizedColorSensor colorSensorIntake;    // Position 1: Entry point detection
+    private NormalizedColorSensor colorSensorFire;      // Position 2: Exit/firing point detection  
+    private NormalizedColorSensor colorSensorStore;     // Position 3: Middle section detection
     
     // Declare mecanum drive motors
     private DcMotorEx leftFront;
@@ -95,6 +103,19 @@ public class TeleOpDECODESimple extends LinearOpMode {
     // Manual indexor control variables
     private boolean manualIndexorControl = false;             // Track if indexor is under manual control
     
+    // Ball counting and intake management variables
+    private int ballCount = 0;                                 // Current number of balls in system (0-3)
+    private boolean intakeRunning = false;                     // Track if intake is currently running
+    private boolean ballDetectedIntake = false;               // Ball detected at intake sensor
+    private boolean ballDetectedFire = false;                 // Ball detected at fire sensor  
+    private boolean ballDetectedStore = false;                // Ball detected at store sensor
+    private boolean previousBallDetectedIntake = false;       // Previous state for edge detection
+    private boolean previousBallDetectedFire = false;         // Previous state for edge detection
+    private boolean previousBallDetectedStore = false;        // Previous state for edge detection
+    private boolean intakeSafetyStop = false;                 // Emergency stop when 3 balls detected
+    private ElapsedTime stuckDetectionTimer = new ElapsedTime(); // Timer for indexor stuck detection
+    private int indexorLastPosition = 0;                      // Last recorded indexor position for stuck detection
+    
     // Motor power settings
     public static final double INTAKE_POWER = 0.8;
     public static final double CONVEYOR_POWER = 1.0;
@@ -148,6 +169,17 @@ public class TeleOpDECODESimple extends LinearOpMode {
     // Stuck detection settings
     public static final double INDEXOR_STUCK_TIMEOUT = 3.0;    // seconds - time before considering indexor stuck
     public static final int INDEXOR_PROGRESS_THRESHOLD = 20;   // minimum ticks of progress required
+    
+    // Color sensor and ball detection settings
+    public static final double COLOR_SENSOR_GAIN = 15.0;       // Sensor gain for better detection
+    public static final double BALL_DETECTION_THRESHOLD = 0.15; // Alpha threshold for ball detection (0.0-1.0)
+    public static final int MAX_BALLS_ALLOWED = 3;             // Maximum balls in system
+    public static final double INTAKE_STUCK_DETECTION_TIMEOUT = 2.0;  // Seconds to detect indexor stuck during intake
+    public static final int INTAKE_STUCK_PROGRESS_THRESHOLD = 10;     // Minimum encoder progress to avoid stuck detection
+    public static final double INTAKE_CONVEYOR_REVERSE_DURATION = 1.0; // Seconds to reverse conveyor when stuck
+    
+    // LED control settings for ball count feedback  
+    public static final double LIGHT_RED_POSITION = 0.25;      // Servo position for red light (3 balls detected)
     
     // Conveyor unsticking settings
     public static final double CONVEYOR_REVERSE_DURATION = 0.3;   // seconds to reverse conveyor when unsticking
@@ -203,6 +235,7 @@ public class TeleOpDECODESimple extends LinearOpMode {
         
         // Run until the end of the match (driver presses STOP)
         while (opModeIsActive()) {
+            readColorSensors();     // Read color sensors and manage ball detection
             handleControllerInputs();
             handleManualIndexorControl();
             handleAutoAlignment(); // Handle AprilTag auto-alignment
@@ -252,6 +285,27 @@ public class TeleOpDECODESimple extends LinearOpMode {
         
         // Initialize trigger servo to home (safe) position
         triggerServo.setPosition(TRIGGER_HOME);
+        
+        // Initialize color sensors for ball detection
+        colorSensorIntake = hardwareMap.get(NormalizedColorSensor.class, "colorSensorEntry");
+        colorSensorFire = hardwareMap.get(NormalizedColorSensor.class, "colorSensorExit");
+        colorSensorStore = hardwareMap.get(NormalizedColorSensor.class, "colorSensorMiddle");
+        
+        // Set color sensor gain for better detection
+        colorSensorIntake.setGain((float)COLOR_SENSOR_GAIN);
+        colorSensorFire.setGain((float)COLOR_SENSOR_GAIN);
+        colorSensorStore.setGain((float)COLOR_SENSOR_GAIN);
+        
+        // Enable LED lights on color sensors if available
+        if (colorSensorIntake instanceof SwitchableLight) {
+            ((SwitchableLight)colorSensorIntake).enableLight(true);
+        }
+        if (colorSensorFire instanceof SwitchableLight) {
+            ((SwitchableLight)colorSensorFire).enableLight(true);
+        }
+        if (colorSensorStore instanceof SwitchableLight) {
+            ((SwitchableLight)colorSensorStore).enableLight(true);
+        }
         
         // Set mecanum drive motor directions
         leftFront.setDirection(DcMotor.Direction.REVERSE);
@@ -365,43 +419,8 @@ public class TeleOpDECODESimple extends LinearOpMode {
     }
     
     private void toggleIntakeSystem() {
-        // Check if any motor is running
-        boolean isRunning = (Math.abs(intake.getPower()) > 0.1) || 
-                           (Math.abs(conveyor.getPower()) > 0.1);
-        
-        if (isRunning) {
-            // Stop all motors: intake, conveyor, and indexor
-            intake.setPower(0);
-            conveyor.setPower(0);
-            indexor.setPower(0);
-            // Reset indexor to FLOAT behavior and stop all detection
-            indexor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
-            indexor.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
-            indexorStuckDetectionActive = false;
-            indexorRunningToPosition = false;
-            
-            // Cancel any active unsticking sequence
-            conveyorUnstickingActive = false;
-            
-            telemetry.addData("Intake System", "STOPPED");
-        } else {
-            // Start all motors: intake, conveyor, and indexor
-            intake.setPower(INTAKE_POWER);
-            conveyor.setPower(CONVEYOR_POWER);
-            indexor.setPower(AUTO_INDEXOR_POWER);
-            // Reset indexor to FLOAT behavior and start stuck detection
-            indexor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
-            startIndexorStuckDetection();
-            
-            // Cancel any active unsticking sequence
-            conveyorUnstickingActive = false;
-            
-            telemetry.addData("Intake System", "RUNNING");
-            telemetry.addData("Intake", "%.1f power", INTAKE_POWER);
-            telemetry.addData("Conveyor", "%.1f power", CONVEYOR_POWER);
-            telemetry.addData("Indexor", "%.1f power", AUTO_INDEXOR_POWER);
-        }
-        telemetry.update();
+        // Use the enhanced ball count management version
+        toggleIntakeSystemWithBallCount();
     }
     
     private void startIndexor() {
@@ -715,6 +734,13 @@ public class TeleOpDECODESimple extends LinearOpMode {
     }
     
     private void updateSpeedLight() {
+        // Priority 1: If 3 balls detected, show RED light regardless of shooter status
+        if (intakeSafetyStop || ballCount >= MAX_BALLS_ALLOWED) {
+            speedLight.setPosition(LIGHT_RED_POSITION);
+            return;
+        }
+        
+        // Priority 2: Standard shooter speed indication
         if (!shooterIntentionallyRunning) {
             // Shooter is off - speed light should be off
             speedLight.setPosition(LIGHT_OFF_POSITION);
@@ -881,6 +907,26 @@ public class TeleOpDECODESimple extends LinearOpMode {
     private void updateTelemetry() {
         // Show current system status
         telemetry.addData("Status", "DECODE Simple + Full System - RUNNING");
+        telemetry.addData("", "");
+        
+        // Show ball detection and intake management status
+        telemetry.addData("🎾 Ball Count", "%d/%d", ballCount, MAX_BALLS_ALLOWED);
+        
+        // Show color sensor detection status
+        String intakeStatus = ballDetectedIntake ? "🔴 DETECTED" : "⚪ CLEAR";
+        String fireStatus = ballDetectedFire ? "🔴 DETECTED" : "⚪ CLEAR";  
+        String storeStatus = ballDetectedStore ? "🔴 DETECTED" : "⚪ CLEAR";
+        telemetry.addData("Sensors", "Entry: %s | Fire: %s | Store: %s", intakeStatus, fireStatus, storeStatus);
+        
+        // Show intake safety status
+        if (intakeSafetyStop) {
+            telemetry.addData("🛑 INTAKE STATUS", "SAFETY STOP - System FULL!");
+            telemetry.addData("💡 Action", "Fire balls to resume intake");
+        } else if (intakeRunning) {
+            telemetry.addData("✅ INTAKE STATUS", "RUNNING - Ball count: %d", ballCount);
+        } else {
+            telemetry.addData("⏹️ INTAKE STATUS", "STOPPED");
+        }
         telemetry.addData("", "");
         
         // Show drive values
@@ -1222,6 +1268,178 @@ public class TeleOpDECODESimple extends LinearOpMode {
             rightBack.setPower(0);
             telemetry.addData("🎯 Auto-Alignment", "⚠️ SEARCHING for AprilTag %d...", TARGET_TAG_ID);
             telemetry.addData("💡 Help", "Make sure tag is visible and well-lit");
+        }
+    }
+    
+    // ========== BALL DETECTION AND INTAKE MANAGEMENT ==========
+    
+    /**
+     * Read all color sensors and detect ball presence
+     */
+    private void readColorSensors() {
+        // Read color sensor values
+        NormalizedRGBA colorsIntake = colorSensorIntake.getNormalizedColors();
+        NormalizedRGBA colorsFire = colorSensorFire.getNormalizedColors();
+        NormalizedRGBA colorsStore = colorSensorStore.getNormalizedColors();
+        
+        // Update previous states for edge detection
+        previousBallDetectedIntake = ballDetectedIntake;
+        previousBallDetectedFire = ballDetectedFire;  
+        previousBallDetectedStore = ballDetectedStore;
+        
+        // Detect balls using alpha channel (object presence)
+        ballDetectedIntake = colorsIntake.alpha > BALL_DETECTION_THRESHOLD;
+        ballDetectedFire = colorsFire.alpha > BALL_DETECTION_THRESHOLD;
+        ballDetectedStore = colorsStore.alpha > BALL_DETECTION_THRESHOLD;
+        
+        // Update ball count based on sensor detection
+        updateBallCount();
+        
+        // Check for intake safety stop (3 balls detected)
+        checkIntakeSafetyStop();
+        
+        // Check for indexor stuck during intake operations
+        checkIntakeIndexorStuck();
+    }
+    
+    /**
+     * Update ball count based on sensor readings and edge detection
+     */
+    private void updateBallCount() {
+        // Count current balls detected across all sensors
+        int currentDetectedBalls = 0;
+        if (ballDetectedIntake) currentDetectedBalls++;
+        if (ballDetectedFire) currentDetectedBalls++;
+        if (ballDetectedStore) currentDetectedBalls++;
+        
+        // Use the maximum between current count and detected balls
+        // This prevents count from decreasing too quickly during ball movement
+        ballCount = Math.max(ballCount, currentDetectedBalls);
+        
+        // Detect new ball entering system (rising edge at intake sensor)
+        if (ballDetectedIntake && !previousBallDetectedIntake) {
+            // Ball entered - increment count only if under limit
+            if (ballCount < MAX_BALLS_ALLOWED) {
+                ballCount++;
+                telemetry.addData("🎾 Ball Detected", "New ball entered! Count: %d", ballCount);
+            }
+        }
+        
+        // Detect ball leaving system (falling edge at fire sensor)
+        if (!ballDetectedFire && previousBallDetectedFire) {
+            // Ball exited - decrement count
+            if (ballCount > 0) {
+                ballCount--;
+                telemetry.addData("🚀 Ball Fired", "Ball shot! Count: %d", ballCount);
+            }
+        }
+        
+        // Safety bounds checking
+        ballCount = Math.max(0, Math.min(ballCount, MAX_BALLS_ALLOWED));
+    }
+    
+    /**
+     * Check if intake should be stopped due to 3 balls detected
+     */
+    private void checkIntakeSafetyStop() {
+        // If all three sensors detect balls, stop intake and turn LED red
+        if (ballDetectedIntake && ballDetectedFire && ballDetectedStore) {
+            intakeSafetyStop = true;
+            ballCount = MAX_BALLS_ALLOWED; // Ensure count is at maximum
+            
+            // Stop intake motor
+            if (intakeRunning) {
+                intake.setPower(0);
+                intakeRunning = false;
+                telemetry.addData("🛑 INTAKE STOP", "System FULL - 3 balls detected!");
+            }
+            
+            // Turn speed light RED to indicate system is full
+            speedLight.setPosition(LIGHT_RED_POSITION);
+            
+        } else {
+            // Reset safety stop if not all sensors detect balls
+            intakeSafetyStop = false;
+        }
+    }
+    
+    /**
+     * Check for indexor stuck during intake operations and reverse conveyor if needed
+     */
+    private void checkIntakeIndexorStuck() {
+        // Only check for stuck detection during intake or indexor operations
+        if (!intakeRunning && !indexorRunningToPosition) {
+            return;
+        }
+        
+        int currentPosition = indexor.getCurrentPosition();
+        
+        // Check if indexor has made sufficient progress
+        if (Math.abs(currentPosition - indexorLastPosition) > INTAKE_STUCK_PROGRESS_THRESHOLD) {
+            // Indexor is moving - reset stuck detection
+            stuckDetectionTimer.reset();
+            indexorLastPosition = currentPosition;
+            return;
+        }
+        
+        // Check if stuck timeout has been reached
+        if (stuckDetectionTimer.seconds() > INTAKE_STUCK_DETECTION_TIMEOUT) {
+            // Indexor is stuck - reverse conveyor to clear jam
+            telemetry.addData("⚠️ JAM DETECTED", "Reversing conveyor to clear jam...");
+            
+            // Reverse conveyor for specified duration
+            conveyor.setPower(-CONVEYOR_POWER);
+            
+            // Stop intake during jam clearing
+            if (intakeRunning) {
+                intake.setPower(0);
+                intakeRunning = false;
+            }
+            
+            // Reset stuck detection timer
+            stuckDetectionTimer.reset();
+            
+            // After a delay, restart normal operation
+            try {
+                Thread.sleep((long)(INTAKE_CONVEYOR_REVERSE_DURATION * 1000));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            
+            // Resume normal conveyor operation if intake was running
+            conveyor.setPower(CONVEYOR_POWER);
+            
+            telemetry.addData("✅ JAM CLEARED", "Resuming normal operation");
+        }
+    }
+    
+    /**
+     * Enhanced toggleIntakeSystem with ball count management
+     */
+    private void toggleIntakeSystemWithBallCount() {
+        // Check if intake is blocked due to safety stop
+        if (intakeSafetyStop) {
+            telemetry.addData("🛑 INTAKE BLOCKED", "System FULL! Fire balls to continue");
+            return;
+        }
+        
+        if (!intakeRunning) {
+            // Start intake system
+            intake.setPower(INTAKE_POWER);
+            conveyor.setPower(CONVEYOR_POWER);
+            intakeRunning = true;
+            
+            // Reset stuck detection timer
+            stuckDetectionTimer.reset();
+            indexorLastPosition = indexor.getCurrentPosition();
+            
+            telemetry.addData("✅ Intake", "STARTED - Ball count: %d/%d", ballCount, MAX_BALLS_ALLOWED);
+        } else {
+            // Stop intake system
+            intake.setPower(0);
+            conveyor.setPower(0);
+            intakeRunning = false;
+            telemetry.addData("⏹️ Intake", "STOPPED - Ball count: %d/%d", ballCount, MAX_BALLS_ALLOWED);
         }
     }
 }
