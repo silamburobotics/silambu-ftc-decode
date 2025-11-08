@@ -392,6 +392,8 @@ public class TeleOpDECODESimple extends LinearOpMode {
         
         // Handle A button on gamepad2 - Toggle AprilTag Auto-Alignment
         if (currentA2 && !previousA2) {
+            telemetry.addData("🎮 DEBUG", "Gamepad2 A button pressed!");
+            telemetry.update();
             toggleAutoAlignment();
         }
         
@@ -1122,18 +1124,26 @@ public class TeleOpDECODESimple extends LinearOpMode {
                 .setLensIntrinsics(1156.544, 1156.544, 640.0, 360.0) // fx, fy, cx, cy for 1280x720
                 .build();
 
-        // Create the vision portal
-        VisionPortal.Builder builder = new VisionPortal.Builder();
-        builder.setCamera(hardwareMap.get(WebcamName.class, "Webcam 1"));
-        builder.setCameraResolution(new android.util.Size(1280, 720));
-        builder.enableLiveView(true);
-        builder.setAutoStopLiveView(false);
-        builder.addProcessor(aprilTag);
-        
-        // Build the Vision Portal
-        visionPortal = builder.build();
-        
-        telemetry.addData("🎯 AprilTag", "Initialized - Looking for Tag %d", TARGET_TAG_ID);
+        try {
+            // Create the vision portal
+            VisionPortal.Builder builder = new VisionPortal.Builder();
+            builder.setCamera(hardwareMap.get(WebcamName.class, "Webcam 1"));
+            builder.setCameraResolution(new android.util.Size(1280, 720));
+            builder.enableLiveView(true);
+            builder.setAutoStopLiveView(false);
+            builder.addProcessor(aprilTag);
+            
+            // Build the Vision Portal
+            visionPortal = builder.build();
+            
+            telemetry.addData("✅ AprilTag", "Initialized - Looking for Tag %d", TARGET_TAG_ID);
+            telemetry.addData("🎥 Camera", "Webcam 1 connected successfully");
+        } catch (Exception e) {
+            telemetry.addData("❌ AprilTag Error", "Failed to initialize: %s", e.getMessage());
+            telemetry.addData("💡 Camera Check", "Ensure 'Webcam 1' is connected and configured");
+            visionPortal = null;
+            aprilTag = null;
+        }
         telemetry.update();
     }
     
@@ -1148,6 +1158,14 @@ public class TeleOpDECODESimple extends LinearOpMode {
             rightBack.setPower(0);
             telemetry.addData("🎯 Auto-Alignment", "STOPPED by operator");
         } else {
+            // Check if AprilTag system is ready
+            if (visionPortal == null || aprilTag == null) {
+                telemetry.addData("❌ Auto-Alignment", "Camera system not ready!");
+                telemetry.addData("💡 Check", "Camera connection and configuration");
+                telemetry.update();
+                return;
+            }
+            
             // Start auto-alignment
             autoAlignmentActive = true;
             autoAlignmentTimer.reset();
@@ -1158,6 +1176,11 @@ public class TeleOpDECODESimple extends LinearOpMode {
     }
     
     private void handleAutoAlignment() {
+        // Debug: Show if auto-alignment is active
+        if (autoAlignmentActive) {
+            telemetry.addData("🔍 DEBUG Auto-Align", "Active - Timer: %.1fs", autoAlignmentTimer.seconds());
+        }
+        
         // Check if auto-alignment should timeout
         if (autoAlignmentActive && autoAlignmentTimer.seconds() > AUTO_ALIGNMENT_TIMEOUT) {
             autoAlignmentActive = false;
@@ -1184,8 +1207,19 @@ public class TeleOpDECODESimple extends LinearOpMode {
             return;
         }
         
+        // Debug: Check VisionPortal state
+        if (visionPortal == null) {
+            telemetry.addData("❌ DEBUG", "VisionPortal is null");
+            autoAlignmentActive = false;
+            return;
+        }
+        
+        telemetry.addData("🔍 DEBUG", "VisionPortal state: %s", visionPortal.getCameraState());
+        
         try {
             currentDetections = aprilTag.getDetections();
+            telemetry.addData("🔍 DEBUG", "Detections retrieved - Count: %d", 
+                currentDetections != null ? currentDetections.size() : 0);
         } catch (Exception e) {
             telemetry.addData("❌ Alignment Error", "Detection exception: %s", e.getMessage());
             autoAlignmentActive = false;
