@@ -260,7 +260,7 @@ public class TeleOpDECODESimple extends LinearOpMode {
         rightBack.setDirection(DcMotor.Direction.FORWARD);
         
         // Set zero power behavior
-        indexor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+        indexor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
         intake.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         conveyor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         shooter.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
@@ -374,8 +374,8 @@ public class TeleOpDECODESimple extends LinearOpMode {
             intake.setPower(0);
             conveyor.setPower(0);
             indexor.setPower(0);
-            // Reset indexor to BRAKE behavior and stop all detection
-            indexor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+            // Reset indexor to FLOAT behavior and stop all detection
+            indexor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
             indexor.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
             indexorStuckDetectionActive = false;
             indexorRunningToPosition = false;
@@ -389,8 +389,8 @@ public class TeleOpDECODESimple extends LinearOpMode {
             intake.setPower(INTAKE_POWER);
             conveyor.setPower(CONVEYOR_POWER);
             indexor.setPower(AUTO_INDEXOR_POWER);
-            // Reset indexor to BRAKE behavior and start stuck detection
-            indexor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+            // Reset indexor to FLOAT behavior and start stuck detection
+            indexor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
             startIndexorStuckDetection();
             
             // Cancel any active unsticking sequence
@@ -411,7 +411,7 @@ public class TeleOpDECODESimple extends LinearOpMode {
         if (indexorRunning) {
             // Stop indexor
             indexor.setPower(0);
-            indexor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+            indexor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
             indexor.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
             indexorStuckDetectionActive = false;
             indexorRunningToPosition = false;
@@ -423,7 +423,7 @@ public class TeleOpDECODESimple extends LinearOpMode {
         } else {
             // Start indexor with automatic power
             indexor.setPower(AUTO_INDEXOR_POWER);
-            indexor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+            indexor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
             startIndexorStuckDetection();
             
             // Cancel any active unsticking sequence
@@ -460,13 +460,19 @@ public class TeleOpDECODESimple extends LinearOpMode {
         if (nextIncrement == 0) {
             nextIncrement = (int) Math.round(INDEXOR_DENOMINATOR); // If exactly on position, move to next
         }
+        
+        // If remainder is above 150, add one more denominator (skip to next-next position)
+        if (remainder > 150) {
+            nextIncrement += (int) Math.round(INDEXOR_DENOMINATOR);
+        }
+        
         int targetPosition = currentPosition + nextIncrement;
         
         // Update global position for tracking (increment for telemetry)
         indexorGlobalPosition = indexorGlobalPosition + 1;
         
-        // Reset motor behavior to BRAKE and set to position mode
-        indexor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+        // Reset motor behavior to FLOAT and set to position mode
+        indexor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
         indexor.setTargetPosition(targetPosition);
         indexor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
         indexor.setPower(AUTO_INDEXOR_POWER);
@@ -475,10 +481,10 @@ public class TeleOpDECODESimple extends LinearOpMode {
         indexorRunningToPosition = true;
         startIndexorStuckDetection();
         
-        telemetry.addData("🎯 INDEXOR MOD CALC", "Current: %d, Remainder: %.1f, Next: +%d", 
-            currentPosition, remainder, nextIncrement);
+        telemetry.addData("🎯 INDEXOR MOD CALC", "Current: %d, Remainder: %.1f, Next: +%d%s", 
+            currentPosition, remainder, nextIncrement, remainder > 150 ? " (Skip)" : "");
         telemetry.addData("Target Position", "%d ticks (Global: %d)", targetPosition, indexorGlobalPosition);
-        telemetry.addData("Movement", "MOD-based precise positioning");
+        telemetry.addData("Movement", "MOD-based precise positioning (FLOAT)");
         telemetry.addData("Conveyor", "RUNNING at %.1f power", CONVEYOR_POWER);
         telemetry.update();
     }
@@ -812,13 +818,19 @@ public class TeleOpDECODESimple extends LinearOpMode {
         if (nextIncrement == 0) {
             nextIncrement = (int) Math.round(INDEXOR_DENOMINATOR); // If exactly on position, move to next
         }
+        
+        // If remainder is above 150, add one more denominator (skip to next-next position)
+        if (remainder > 150) {
+            nextIncrement += (int) Math.round(INDEXOR_DENOMINATOR);
+        }
+        
         int targetPosition = currentPosition + nextIncrement;
         
         // Update global position for tracking (increment for telemetry)
         indexorGlobalPosition = indexorGlobalPosition + 1;
         
-        // Reset motor behavior to BRAKE and set to position mode
-        indexor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+        // Reset motor behavior to FLOAT and set to position mode
+        indexor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
         indexor.setTargetPosition(targetPosition);
         indexor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
         indexor.setPower(AUTO_INDEXOR_POWER);
@@ -827,8 +839,8 @@ public class TeleOpDECODESimple extends LinearOpMode {
         indexorRunningToPosition = true;
         startIndexorStuckDetection();
         
-        telemetry.addData("🔄 TRIGGER INDEXOR", "Current: %d, Target: %d (+%d)", 
-            currentPosition, targetPosition, nextIncrement);
+        telemetry.addData("🔄 TRIGGER INDEXOR", "Current: %d, Target: %d (+%d)%s", 
+            currentPosition, targetPosition, nextIncrement, remainder > 150 ? " Skip" : "");
     }
     
     private void handleMecanumDrive() {
