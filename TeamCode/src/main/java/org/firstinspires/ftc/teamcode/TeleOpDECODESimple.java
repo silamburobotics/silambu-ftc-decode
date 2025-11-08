@@ -571,17 +571,23 @@ public class TeleOpDECODESimple extends LinearOpMode {
         double elapsedTime = conveyorUnstickTimer.seconds();
         
         if (conveyorReversePhase) {
-            // Phase 1: Reverse conveyor to unstick
+            // Phase 1: Reverse conveyor to unstick - BRAKE indexor during reverse
+            indexor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+            
             if (elapsedTime >= CONVEYOR_REVERSE_DURATION) {
-                // Switch to forward phase
+                // Switch to forward phase - RELEASE indexor brake
                 conveyorReversePhase = false;
                 conveyorUnstickTimer.reset(); // Reset timer for forward phase
                 conveyor.setPower(CONVEYOR_POWER); // Forward direction
+                indexor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT); // Release brake
                 
                 telemetry.addData("🔄 CONVEYOR", "FORWARD phase (%.1fs)", CONVEYOR_FORWARD_DURATION);
+                telemetry.addData("🔓 INDEXOR", "Brake released - motor floating");
+            } else {
+                telemetry.addData("🔒 INDEXOR", "BRAKE applied during conveyor reverse");
             }
         } else {
-            // Phase 2: Forward conveyor briefly
+            // Phase 2: Forward conveyor briefly - indexor already floating
             if (elapsedTime >= CONVEYOR_FORWARD_DURATION) {
                 // End unsticking sequence
                 conveyorUnstickingActive = false;
