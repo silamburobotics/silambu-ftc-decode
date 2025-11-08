@@ -89,7 +89,7 @@ public class TeleOpDECODESimple extends LinearOpMode {
     private boolean indexorRunningToPosition = false;
     
     // Global indexor position tracking
-    private int indexorGlobalPosition = 0;                    // Track current global position (0, 1, 2, 3, 4, 5...) - forward only
+    private int indexorGlobalPosition = 0;                    // Track position count (MOD-based precise positioning)
     private int indexorInitialPosition = 0;                   // Store initial encoder position for reference
     
     // Manual indexor control variables
@@ -103,8 +103,10 @@ public class TeleOpDECODESimple extends LinearOpMode {
     public static final double SHOOTER_POWER = 1.0;
     public static final double SHOOTER_SERVO_POWER = 1.0;     // Positive for forward direction
     
-    // Indexor position settings - Global positions
-    public static final int INDEXOR_TICKS_PER_120_DEGREES = 179;  // goBILDA 312 RPM motor: 120 degrees = 179 ticks
+    // Indexor position settings - Precise position-based calculation
+    public static final double INDEXOR_TICKS_PER_REVOLUTION = 537.7;  // goBILDA 312 RPM motor precise value
+    public static final double INDEXOR_DENOMINATOR = INDEXOR_TICKS_PER_REVOLUTION / 3.0;  // 179.23 ticks per 120°
+    public static final int INDEXOR_TICKS_PER_120_DEGREES = (int) Math.round(INDEXOR_DENOMINATOR);  // 179 ticks (rounded)
     public static final int INDEXOR_POSITION_0 = 0;               // 0 degrees (home position)
     public static final int INDEXOR_POSITION_1 = 179;             // 120 degrees
     public static final int INDEXOR_POSITION_2 = 358;             // 240 degrees  
@@ -186,7 +188,7 @@ public class TeleOpDECODESimple extends LinearOpMode {
         telemetry.addData("Right Stick X", "Turn");
         telemetry.addData("=== GAMEPAD 2 (OPERATOR) ===", "");
         telemetry.addData("A Button", "🎯 Toggle AprilTag Auto-Alignment");
-        telemetry.addData("X Button", "Indexor Forward Movement (+120°)");
+        telemetry.addData("X Button", "Indexor MOD-based Advance (179.23°)");
         telemetry.addData("Y Button", "Shooter + Servo (Auto-stops Intake)");
         telemetry.addData("B Button", "Auto Fire (Fire → Home)");
         telemetry.addData("", "");
@@ -451,11 +453,17 @@ public class TeleOpDECODESimple extends LinearOpMode {
         // Start conveyor to help feed balls through the system
         conveyor.setPower(CONVEYOR_POWER);
         
-        // Update global position tracking BEFORE moving (forward-only, no cycling back)
-        indexorGlobalPosition = indexorGlobalPosition + 1; // Always advance forward (no % 4 cycling)
+        // Get current encoder position and calculate next position using MOD logic
+        int currentPosition = indexor.getCurrentPosition();
+        double remainder = currentPosition % INDEXOR_DENOMINATOR;
+        int nextIncrement = (int) Math.round(INDEXOR_DENOMINATOR - remainder);
+        if (nextIncrement == 0) {
+            nextIncrement = (int) Math.round(INDEXOR_DENOMINATOR); // If exactly on position, move to next
+        }
+        int targetPosition = currentPosition + nextIncrement;
         
-        // Calculate target position based on new global position
-        int targetPosition = indexorInitialPosition + (indexorGlobalPosition * INDEXOR_TICKS_PER_120_DEGREES);
+        // Update global position for tracking (increment for telemetry)
+        indexorGlobalPosition = indexorGlobalPosition + 1;
         
         // Reset motor behavior to BRAKE and set to position mode
         indexor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
@@ -467,10 +475,10 @@ public class TeleOpDECODESimple extends LinearOpMode {
         indexorRunningToPosition = true;
         startIndexorStuckDetection();
         
-        telemetry.addData("🎯 INDEXOR FORWARD", "Moving to global position %d (%.0f°)", 
-            indexorGlobalPosition, indexorGlobalPosition * 120.0);
-        telemetry.addData("Target Position", "%d ticks", targetPosition);
-        telemetry.addData("Movement", "Forward-only positioning (no cycle back)");
+        telemetry.addData("🎯 INDEXOR MOD CALC", "Current: %d, Remainder: %.1f, Next: +%d", 
+            currentPosition, remainder, nextIncrement);
+        telemetry.addData("Target Position", "%d ticks (Global: %d)", targetPosition, indexorGlobalPosition);
+        telemetry.addData("Movement", "MOD-based precise positioning");
         telemetry.addData("Conveyor", "RUNNING at %.1f power", CONVEYOR_POWER);
         telemetry.update();
     }
@@ -797,11 +805,17 @@ public class TeleOpDECODESimple extends LinearOpMode {
         // Start conveyor to help feed balls through the system
         conveyor.setPower(CONVEYOR_POWER);
         
-        // Update global position tracking BEFORE moving (forward-only, no cycling back)
-        indexorGlobalPosition = indexorGlobalPosition + 1; // Always advance forward (no % 4 cycling)
+        // Get current encoder position and calculate next position using MOD logic
+        int currentPosition = indexor.getCurrentPosition();
+        double remainder = currentPosition % INDEXOR_DENOMINATOR;
+        int nextIncrement = (int) Math.round(INDEXOR_DENOMINATOR - remainder);
+        if (nextIncrement == 0) {
+            nextIncrement = (int) Math.round(INDEXOR_DENOMINATOR); // If exactly on position, move to next
+        }
+        int targetPosition = currentPosition + nextIncrement;
         
-        // Calculate target position based on new global position
-        int targetPosition = indexorInitialPosition + (indexorGlobalPosition * INDEXOR_TICKS_PER_120_DEGREES);
+        // Update global position for tracking (increment for telemetry)
+        indexorGlobalPosition = indexorGlobalPosition + 1;
         
         // Reset motor behavior to BRAKE and set to position mode
         indexor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
@@ -813,8 +827,8 @@ public class TeleOpDECODESimple extends LinearOpMode {
         indexorRunningToPosition = true;
         startIndexorStuckDetection();
         
-        telemetry.addData("🔄 TRIGGER INDEXOR", "Moving to global position %d (%.0f°)", 
-            indexorGlobalPosition, indexorGlobalPosition * 120.0);
+        telemetry.addData("🔄 TRIGGER INDEXOR", "Current: %d, Target: %d (+%d)", 
+            currentPosition, targetPosition, nextIncrement);
     }
     
     private void handleMecanumDrive() {
