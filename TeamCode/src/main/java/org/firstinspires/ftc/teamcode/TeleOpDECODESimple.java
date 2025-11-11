@@ -22,6 +22,7 @@ import org.firstinspires.ftc.vision.apriltag.AprilTagDetection;
 import org.firstinspires.ftc.vision.apriltag.AprilTagProcessor;
 
 import java.util.List;
+import android.util.Size;
 
 @Config
 @TeleOp(name = "TeleOpDECODESimple", group = "TeleOp")
@@ -195,7 +196,7 @@ public class TeleOpDECODESimple extends LinearOpMode {
     public static final int TARGET_TAG_ID = 20; // Blue AprilTag ID
     public static final double AUTO_ALIGNMENT_TIMEOUT = 5.0;  // Seconds before auto-alignment stops
     public static final double BEARING_ALIGNMENT_TOLERANCE = 2.0; // degrees - how precise bearing alignment needs to be
-    public static final double BEARING_ALIGNMENT_POWER = 0.02; // proportional control gain for bearing correction
+    public static final double BEARING_ALIGNMENT_POWER = 0.03; // proportional control gain for bearing correction (increased for faster response)
     public static final double ALIGNMENT_TURN_POWER = 0.3;    // maximum turn power for alignment
     public static final double ALIGNMENT_DRIVE_POWER = 0.25;  // maximum drive power for alignment
     public static final double OPTIMAL_SHOOTING_DISTANCE = 24.0; // inches - optimal distance from AprilTag
@@ -1112,7 +1113,7 @@ public class TeleOpDECODESimple extends LinearOpMode {
             // Create the vision portal
             VisionPortal.Builder builder = new VisionPortal.Builder();
             builder.setCamera(hardwareMap.get(WebcamName.class, "Webcam 1"));
-            builder.setCameraResolution(new android.util.Size(1280, 720));
+            builder.setCameraResolution(new Size(1280, 720));
             builder.enableLiveView(true);
             builder.setAutoStopLiveView(false);
             builder.addProcessor(aprilTag);
