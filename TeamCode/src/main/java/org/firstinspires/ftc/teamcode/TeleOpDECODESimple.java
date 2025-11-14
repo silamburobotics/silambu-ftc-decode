@@ -112,26 +112,21 @@ public class TeleOpDECODESimple extends LinearOpMode {
     private boolean previousBallDetectedFire = false;         // Previous state for edge detection
     private boolean previousBallDetectedStore = false;        // Previous state for edge detection
     private ElapsedTime stuckDetectionTimer = new ElapsedTime(); // Timer for indexor stuck detection
-    private int indexorLastPosition = 0;                      // Last recorded indexor position for stuck detection
     
     // Motor power settings
     public static final double INTAKE_POWER = 0.8;
     public static final double CONVEYOR_POWER = 1.0;
-    public static final double AUTO_INDEXOR_POWER = 0.4;      // Power for automatic indexor movement
     public static final double MANUAL_INDEXOR_POWER = 0.4;    // Power for manual indexor control via X button
     public static final double JOYSTICK_INDEXOR_POWER = 0.2;  // Power for manual indexor control via joystick
-    public static final double SHOOTER_POWER = 1.0;
     public static final double SHOOTER_SERVO_POWER = 1.0;     // Positive for forward direction
     
     // Indexor position settings - Precise position-based calculation
     public static final double INDEXOR_TICKS_PER_REVOLUTION = 537.7;  // goBILDA 312 RPM motor precise value
     public static final double INDEXOR_DENOMINATOR = INDEXOR_TICKS_PER_REVOLUTION / 3.0;  // 179.23 ticks per 120°
-    public static final int INDEXOR_TICKS_PER_120_DEGREES = (int) Math.round(INDEXOR_DENOMINATOR);  // 179 ticks (rounded)
     public static final int INDEXOR_POSITION_0 = 0;               // 0 degrees (home position)
     public static final int INDEXOR_POSITION_1 = 179;             // 120 degrees
     public static final int INDEXOR_POSITION_2 = 358;             // 240 degrees  
     public static final int INDEXOR_POSITION_3 = 537;             // 360 degrees
-    public static final int[] INDEXOR_POSITIONS = {INDEXOR_POSITION_0, INDEXOR_POSITION_1, INDEXOR_POSITION_2, INDEXOR_POSITION_3};
     
     // Shooter velocity control (ticks per second)
     public static double SHOOTER_TARGET_VELOCITY = 1300;      // Range: 1200-1800 ticks/sec
@@ -150,7 +145,6 @@ public class TeleOpDECODESimple extends LinearOpMode {
     // Fast spin-up optimization settings
     public static double SHOOTER_INITIAL_BOOST_MULTIPLIER = 1.15;   // 15% initial boost for faster ramp-up
     public static double SHOOTER_BOOST_DURATION = 0.5;             // Seconds to apply initial boost
-    public static double SHOOTER_AGGRESSIVE_RAMP_MULTIPLIER = 1.08; // 8% aggressive ramp for first few seconds
     
     // Speed light control settings (using servo positions for LED control)
     public static final double LIGHT_OFF_POSITION = 0.0;      // Servo position for light off
@@ -176,9 +170,6 @@ public class TeleOpDECODESimple extends LinearOpMode {
     public static final int INTAKE_STUCK_PROGRESS_THRESHOLD = 10;     // Minimum encoder progress to avoid stuck detection
     public static final double INTAKE_CONVEYOR_REVERSE_DURATION = 1.0; // Seconds to reverse conveyor when stuck
     
-    // LED control settings for ball count feedback  
-    public static final double LIGHT_RED_POSITION = 0.25;      // Servo position for red light (3 balls detected)
-    
     // Conveyor unsticking settings
     public static final double CONVEYOR_REVERSE_DURATION = 0.3;   // seconds to reverse conveyor when unsticking
     public static final double CONVEYOR_FORWARD_DURATION = 0.2;   // seconds to run forward after reverse
@@ -196,11 +187,8 @@ public class TeleOpDECODESimple extends LinearOpMode {
     public static final int TARGET_TAG_ID = 20; // Blue AprilTag ID
     public static final double AUTO_ALIGNMENT_TIMEOUT = 5.0;  // Seconds before auto-alignment stops
     public static final double BEARING_ALIGNMENT_TOLERANCE = 2.0; // degrees - how precise bearing alignment needs to be
-    public static final double BEARING_ALIGNMENT_POWER = 0.03; // proportional control gain for bearing correction (increased for faster response)
-    public static final double ALIGNMENT_TURN_POWER = 0.3;    // maximum turn power for alignment
-    public static final double ALIGNMENT_DRIVE_POWER = 0.25;  // maximum drive power for alignment
-    public static final double OPTIMAL_SHOOTING_DISTANCE = 24.0; // inches - optimal distance from AprilTag
-    public static final double DISTANCE_TOLERANCE = 6.0;      // inches - acceptable distance variation
+    public static final double BEARING_ALIGNMENT_POWER = 0.015; // proportional control gain for bearing correction (reduced to prevent vibration)
+    public static final double ALIGNMENT_TURN_POWER = 0.25;    // maximum turn power for alignment (reduced)
     
     @Override
     public void runOpMode() {
@@ -1241,9 +1229,14 @@ public class TeleOpDECODESimple extends LinearOpMode {
                                Math.min(ALIGNMENT_TURN_POWER, turnPower));
                     
                     // Add minimum power if error is significant but calculated power is too small
-                    double minTurnPower = 0.12;
+                    double minTurnPower = 0.08;  // Reduced from 0.12 to prevent vibration
                     if (Math.abs(bearingAngle) > BEARING_ALIGNMENT_TOLERANCE && Math.abs(turnPower) < minTurnPower) {
                         turnPower = Math.signum(turnPower) * minTurnPower;
+                    }
+                    
+                    // Add deadband for small movements to prevent micro-oscillations
+                    if (Math.abs(turnPower) < 0.05) {
+                        turnPower = 0;
                     }
                 }
                 
