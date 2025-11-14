@@ -112,6 +112,7 @@ public class TeleOpDECODESimple extends LinearOpMode {
     private boolean previousBallDetectedFire = false;         // Previous state for edge detection
     private boolean previousBallDetectedStore = false;        // Previous state for edge detection
     private ElapsedTime stuckDetectionTimer = new ElapsedTime(); // Timer for indexor stuck detection
+    private int indexorLastPosition = 0;                      // Last recorded indexor position for stuck detection
     
     // Motor power settings
     public static final double INTAKE_POWER = 0.8;
