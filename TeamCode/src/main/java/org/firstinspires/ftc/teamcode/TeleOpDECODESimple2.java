@@ -100,8 +100,8 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
     public static final double BALL_DETECTION_THRESHOLD = 0.15;
     
     // Trigger servo positions
-    public static final double TRIGGER_FIRE = 0.15;     // Fire position (27.0 degrees)
-    public static final double TRIGGER_HOME = 0.58;     // Home position (104.4 degrees)
+    public static final double TRIGGER_FIRE = 0.05;     // Fire position (27.0 degrees)
+    public static final double TRIGGER_HOME = 0.5;     // Home position (104.4 degrees)
     public static final double TRIGGER_FIRE_DURATION = 0.5;  // Fire duration in seconds
     
     // Indexor stuck detection
@@ -617,6 +617,14 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
             triggerTimer.reset();
             
             telemetry.addData("🏠 Trigger", "Returned to HOME position");
+            
+            // Add 0.25 second delay before advancing indexer
+            try {
+                Thread.sleep(250);  // 0.25 second delay
+            } catch (InterruptedException e) {
+                // Handle interruption gracefully
+                Thread.currentThread().interrupt();
+            }
             
             // 3) Advance indexer to next position
             advanceIndexer();
