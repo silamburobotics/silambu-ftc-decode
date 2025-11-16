@@ -41,8 +41,8 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
     // Declare color sensor for intake ball detection
     private NormalizedColorSensor colorSensorIntake;
     
-    // Declare color sensor for middle position
-    private NormalizedColorSensor colorSensorMiddle;
+    // Declare color sensor for exit position
+    private NormalizedColorSensor colorSensorExit;
     
     // Declare mecanum drive motors
     private DcMotorEx leftFront;
@@ -64,7 +64,7 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
     // Ball detection variables
     private boolean ballDetectedIntake = false;
     private boolean previousBallDetectedIntake = false;
-    private boolean ballDetectedMiddle = false;
+    private boolean ballDetectedExit = false;
     
     // Indexor control variables
     private double indexorLastSuccessfulPosition = 0.0;  // Last successful indexor position
@@ -191,18 +191,18 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
         colorSensorIntake = hardwareMap.get(NormalizedColorSensor.class, "colorSensorEntry");
         colorSensorIntake.setGain((float)COLOR_SENSOR_GAIN);
         
-        // Initialize middle color sensor
-        colorSensorMiddle = hardwareMap.get(NormalizedColorSensor.class, "colorSensorMiddle");
-        colorSensorMiddle.setGain((float)COLOR_SENSOR_GAIN);
+        // Initialize exit color sensor
+        colorSensorExit = hardwareMap.get(NormalizedColorSensor.class, "colorSensorExit");
+        colorSensorExit.setGain((float)COLOR_SENSOR_GAIN);
         
         // Enable LED light if available
         if (colorSensorIntake instanceof SwitchableLight) {
             ((SwitchableLight)colorSensorIntake).enableLight(true);
         }
         
-        // Enable LED light for middle sensor if available
-        if (colorSensorMiddle instanceof SwitchableLight) {
-            ((SwitchableLight)colorSensorMiddle).enableLight(true);
+        // Enable LED light for exit sensor if available
+        if (colorSensorExit instanceof SwitchableLight) {
+            ((SwitchableLight)colorSensorExit).enableLight(true);
         }
         
         // Set mecanum drive motor directions
@@ -272,11 +272,11 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
         // Detect ball using alpha channel
         ballDetectedIntake = colorsIntake.alpha > BALL_DETECTION_THRESHOLD;
         
-        // Read middle color sensor
-        NormalizedRGBA colorsMiddle = colorSensorMiddle.getNormalizedColors();
+        // Read exit color sensor
+        NormalizedRGBA colorsExit = colorSensorExit.getNormalizedColors();
         
-        // Detect ball in middle position
-        ballDetectedMiddle = colorsMiddle.alpha > BALL_DETECTION_THRESHOLD;
+        // Detect ball in exit position
+        ballDetectedExit = colorsExit.alpha > BALL_DETECTION_THRESHOLD;
     }
     
     private void handleGamepad1Controls() {
@@ -343,16 +343,16 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
      * 1) Run the intake wheels forward
      * 2) Run the conveyor forward  
      * 3) Advance the indexer forward when ball detected in the intake sensor
-     * 4) Stop intake when middle sensor detects a ball
+     * 4) Stop intake when exit sensor detects a ball
      */
     private void intakeFunction() {
         boolean intakeRunning = Math.abs(intake.getPower()) > 0.1;
         
         if (!intakeRunning) {
-            // Check if middle sensor already has a ball before starting intake
-            if (ballDetectedMiddle) {
-                telemetry.addData("⚠️ Intake", "Cannot start - Middle sensor FULL");
-                telemetry.addData("Middle Sensor", "🔴 Ball detected");
+            // Check if exit sensor already has a ball before starting intake
+            if (ballDetectedExit) {
+                telemetry.addData("⚠️ Intake", "Cannot start - Exit sensor FULL");
+                telemetry.addData("Exit Sensor", "🔴 Ball detected");
                 telemetry.update();
                 return;
             }
@@ -373,12 +373,12 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
             telemetry.addData("⏹️ Intake Function", "STOPPED");
         }
         
-        // 4) Auto-stop intake if middle sensor detects a ball while running
-        if (intakeRunning && ballDetectedMiddle && !indexorMoving) {
+        // 4) Auto-stop intake if exit sensor detects a ball while running
+        if (intakeRunning && ballDetectedExit && !indexorMoving) {
             intake.setPower(0);
             conveyor.setPower(0);
-            telemetry.addData("🛑 Auto Stop", "Middle sensor FULL - intake stopped");
-            telemetry.addData("Middle Sensor", "🔴 Ball detected");
+            telemetry.addData("🛑 Auto Stop", "Exit sensor FULL - intake stopped");
+            telemetry.addData("Exit Sensor", "🔴 Ball detected");
             telemetry.addData("Status", "Ready for next operation!");
         }
         
@@ -388,8 +388,8 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
             // Ball detected - check if intake is running
             boolean currentIntakeRunning = Math.abs(intake.getPower()) > 0.1 && intake.getPower() > 0;
             
-            if (currentIntakeRunning && !indexorMoving && !ballDetectedMiddle) {
-                // Auto-advance indexer when ball detected during intake (if middle not full)
+            if (currentIntakeRunning && !indexorMoving && !ballDetectedExit) {
+                // Auto-advance indexer when ball detected during intake (if exit not full)
                 advanceIndexer();
                 telemetry.addData("🎾 Auto Advance", "Ball detected - advancing indexer");
             }
@@ -485,6 +485,9 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
         indexor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
         indexor.setPower(INDEXOR_POWER);
         
+        // Run conveyor when indexer is running
+        conveyor.setPower(CONVEYOR_POWER);
+        
         // Start movement tracking
         indexorMoving = true;
         indexorTimer.reset();
@@ -528,6 +531,7 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
             
             indexorMoving = false;
             indexor.setPower(0);
+            conveyor.setPower(0);  // Stop conveyor when indexer stops
             return;
         }
         
@@ -540,6 +544,7 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
                 // Indexer is stuck - put in float mode
                 // DO NOT update indexorLastSuccessfulPosition - keep previous successful position
                 indexor.setPower(0);
+                conveyor.setPower(0);  // Stop conveyor when indexer gets stuck
                 indexor.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
                 indexor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
                 indexorMoving = false;
@@ -671,9 +676,9 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
         
         // Ball detection status
         String ballStatusIntake = ballDetectedIntake ? "🔴 DETECTED" : "⚪ CLEAR";
-        String ballStatusMiddle = ballDetectedMiddle ? "🔴 DETECTED" : "⚪ CLEAR";
+        String ballStatusExit = ballDetectedExit ? "🔴 DETECTED" : "⚪ CLEAR";
         telemetry.addData("Intake Sensor", "%s", ballStatusIntake);
-        telemetry.addData("Middle Sensor", "%s", ballStatusMiddle);
+        telemetry.addData("Exit Sensor", "%s", ballStatusExit);
         
         // Check for automatic indexer advancement based on ball detection
         checkAutomaticIndexerAdvance();
