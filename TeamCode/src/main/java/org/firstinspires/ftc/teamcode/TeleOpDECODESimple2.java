@@ -103,8 +103,8 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
     public static final double BALL_DETECTION_THRESHOLD = 0.15;
     
     // Trigger servo positions
-    public static final double TRIGGER_FIRE = 0.15;     // Fire position (27.0 degrees)
-    public static final double TRIGGER_HOME = 0.58;     // Home position (104.4 degrees)
+    public static final double TRIGGER_FIRE = 0.05;     // Fire position (27.0 degrees)
+    public static final double TRIGGER_HOME = 0.5;     // Home position (104.4 degrees)
     public static final double TRIGGER_FIRE_DURATION = 0.5;  // Fire duration in seconds
     
     // Speed light control settings (using servo positions for LED control)
@@ -643,6 +643,12 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
         
         // 2) Start trigger sequence - move to fire position
         triggerServo.setPosition(TRIGGER_FIRE);
+        
+        // Put indexer in float mode while trigger is firing
+        indexor.setPower(0);
+        indexor.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
+        indexor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
+        
         triggerSequenceActive = true;
         triggerInFirePosition = true;
         triggerTimer.reset();
@@ -650,6 +656,7 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
         telemetry.addData("🎯 Trigger Function", "SEQUENCE STARTED");
         telemetry.addData("Shooter Status", "RUNNING at %.0f ticks/sec", currentShooterVelocity);
         telemetry.addData("Trigger Position", "FIRE (%.1f seconds)", TRIGGER_FIRE_DURATION);
+        telemetry.addData("Indexer Mode", "FLOAT (for firing)");
         telemetry.update();
     }
     
