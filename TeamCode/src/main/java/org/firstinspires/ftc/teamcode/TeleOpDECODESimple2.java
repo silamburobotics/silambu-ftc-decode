@@ -674,17 +674,6 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
             
             telemetry.addData("🏠 Trigger", "Returned to HOME position");
             
-            // Add 0.5 second delay before advancing indexer
-            try {
-                Thread.sleep(500);  // 0.5 second delay
-            } catch (InterruptedException e) {
-                // Handle interruption gracefully
-                Thread.currentThread().interrupt();
-            }
-            
-            // 3) Advance indexer to next position
-            advanceIndexer();
-            
             // End sequence
             triggerSequenceActive = false;
             
