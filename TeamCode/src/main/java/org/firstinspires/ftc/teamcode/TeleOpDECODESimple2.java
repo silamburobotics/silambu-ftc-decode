@@ -106,8 +106,8 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
     public static final double BALL_DETECTION_THRESHOLD = 0.15;
     
     // Trigger servo positions
-    public static final double TRIGGER_FIRE = 0.15;     // Fire position
-    public static final double TRIGGER_HOME = 0.76;     // Home position
+    public static final double TRIGGER_FIRE = 0.278;    // Fire position (50 degrees)
+    public static final double TRIGGER_HOME = 0.632;    // Home position (113.8 degrees)
     public static final double TRIGGER_FIRE_DURATION = 0.5;  // Fire duration in seconds
     
     // Indexor stuck detection
