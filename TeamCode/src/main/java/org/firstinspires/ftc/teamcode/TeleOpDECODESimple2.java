@@ -100,8 +100,8 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
     public static final double BALL_DETECTION_THRESHOLD = 0.15;
     
     // Trigger servo positions
-    public static  double TRIGGER_FIRE = 0.278;    // Fire position (50 degrees)
-    public static  double TRIGGER_HOME = 0.632;    // Home position (113.8 degrees)
+    public static final double TRIGGER_FIRE = 0.15;     // Fire position (27.0 degrees)
+    public static final double TRIGGER_HOME = 0.58;     // Home position (104.4 degrees)
     public static final double TRIGGER_FIRE_DURATION = 0.5;  // Fire duration in seconds
     
     // Indexor stuck detection
@@ -131,8 +131,8 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
         telemetry.addData("", "");
         telemetry.addData("GAMEPAD1 CONTROLS:", "");
         telemetry.addData("A", "Intake Function");
-        telemetry.addData("B", "Set Shooter Speed 1300");
-        telemetry.addData("Y", "Set Shooter Speed 1600");
+        telemetry.addData("B", "Toggle Shooter Speed 1300");
+        telemetry.addData("Y", "Toggle Shooter Speed 1600");
         telemetry.addData("Left Stick", "Drive/Strafe");
         telemetry.addData("Right Stick X", "Turn");
         telemetry.addData("", "");
@@ -290,14 +290,14 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
             intakeFunction();
         }
         
-        // Handle B button - Set Shooter Speed 1300
+        // Handle B button - Toggle Shooter Speed 1300
         if (currentB1 && !previousB1) {
-            setShooterSpeed(1300);
+            toggleShooterSpeed(1300);
         }
         
-        // Handle Y button - Set Shooter Speed 1600
+        // Handle Y button - Toggle Shooter Speed 1600
         if (currentY1 && !previousY1) {
-            setShooterSpeed(1600);
+            toggleShooterSpeed(1600);
         }
         
         // Update previous states
@@ -427,19 +427,32 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
     }
     
     /**
-     * Set Shooter Speed (gamepad1 B/Y buttons for trial)
-     * B button: 1300 ticks/sec
-     * Y button: 1600 ticks/sec
+     * Toggle Shooter Speed (gamepad1 B/Y buttons)
+     * B button: Toggle 1300 ticks/sec
+     * Y button: Toggle 1600 ticks/sec
+     * If shooter is off or running at different speed, start at specified speed
+     * If shooter is already running at specified speed, stop shooter
      */
-    private void setShooterSpeed(double velocity) {
-        // Start shooter at specified velocity
-        shooter.setVelocity(velocity);
-        shooterServo.setPower(SHOOTER_SERVO_POWER);
-        shooterRunning = true;
-        currentShooterVelocity = velocity;
-        
-        telemetry.addData("🎯 Shooter Speed Set", "%.0f ticks/sec", velocity);
-        telemetry.addData("Shooter Status", "RUNNING");
+    private void toggleShooterSpeed(double velocity) {
+        if (shooterRunning && Math.abs(currentShooterVelocity - velocity) < 50) {
+            // Shooter is already running at this speed - stop it
+            shooter.setVelocity(0);
+            shooterServo.setPower(0);
+            shooterRunning = false;
+            currentShooterVelocity = 0;
+            
+            telemetry.addData("⏹️ Shooter STOPPED", "Was running at %.0f ticks/sec", velocity);
+            telemetry.addData("Shooter Status", "OFF");
+        } else {
+            // Shooter is off or running at different speed - start at specified velocity
+            shooter.setVelocity(velocity);
+            shooterServo.setPower(SHOOTER_SERVO_POWER);
+            shooterRunning = true;
+            currentShooterVelocity = velocity;
+            
+            telemetry.addData("🎯 Shooter STARTED", "%.0f ticks/sec", velocity);
+            telemetry.addData("Shooter Status", "RUNNING");
+        }
         telemetry.update();
     }
     
