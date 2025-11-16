@@ -572,18 +572,30 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
             if (movement < INDEXOR_STUCK_THRESHOLD) {
                 // Indexer is stuck - put in float mode
                 // DO NOT update indexorLastSuccessfulPosition - keep previous successful position
+                
+                // First stop the motor power
                 indexor.setPower(0);
+                
+                // Change to RUN_WITHOUT_ENCODER mode to exit RUN_TO_POSITION mode
+                indexor.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
+                
+                // Now set to FLOAT behavior
+                indexor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
+                
+                // Ensure motor is truly floating by setting power to 0 again after mode change
+                indexor.setPower(0);
+                
                 // Only stop conveyor if intake is not running
                 if (Math.abs(intake.getPower()) <= 0.1) {
                     conveyor.setPower(0);
                 }
-                indexor.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
-                indexor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
+                
                 indexorMoving = false;
                 
                 telemetry.addData("⚠️ Indexer STUCK", "Put in FLOAT mode");
                 telemetry.addData("Movement", "%d ticks in %.1f seconds", movement, indexorTimer.seconds());
                 telemetry.addData("Keeping Previous", "Successful position: %.1f", indexorLastSuccessfulPosition);
+                telemetry.addData("Mode", "RUN_WITHOUT_ENCODER + FLOAT");
                 telemetry.update();
             }
         }
@@ -655,9 +667,9 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
             
             telemetry.addData("🏠 Trigger", "Returned to HOME position");
             
-            // Add 0.25 second delay before advancing indexer
+            // Add 0.5 second delay before advancing indexer
             try {
-                Thread.sleep(250);  // 0.25 second delay
+                Thread.sleep(500);  // 0.5 second delay
             } catch (InterruptedException e) {
                 // Handle interruption gracefully
                 Thread.currentThread().interrupt();
