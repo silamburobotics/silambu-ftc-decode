@@ -366,9 +366,11 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
             telemetry.addData("Conveyor Power", "%.1f", CONVEYOR_POWER);
             telemetry.addData("Ball Detection", "Monitoring for auto-advance and auto-stop");
         } else {
-            // Stop intake
+            // Stop intake (but check if indexer is running before stopping conveyor)
             intake.setPower(0);
-            conveyor.setPower(0);
+            if (!indexorMoving) {
+                conveyor.setPower(0);  // Only stop conveyor if indexer is not running
+            }
             
             telemetry.addData("⏹️ Intake Function", "STOPPED");
         }
@@ -376,7 +378,9 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
         // 4) Auto-stop intake if exit sensor detects a ball while running
         if (intakeRunning && ballDetectedExit && !indexorMoving) {
             intake.setPower(0);
-            conveyor.setPower(0);
+            if (!indexorMoving) {
+                conveyor.setPower(0);  // Only stop conveyor if indexer is not running
+            }
             telemetry.addData("🛑 Auto Stop", "Exit sensor FULL - intake stopped");
             telemetry.addData("Exit Sensor", "🔴 Ball detected");
             telemetry.addData("Status", "Ready for next operation!");
@@ -485,7 +489,7 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
         indexor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
         indexor.setPower(INDEXOR_POWER);
         
-        // Run conveyor when indexer is running
+        // Run conveyor when indexer is running (ensure it's running regardless of intake status)
         conveyor.setPower(CONVEYOR_POWER);
         
         // Start movement tracking
@@ -531,7 +535,10 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
             
             indexorMoving = false;
             indexor.setPower(0);
-            conveyor.setPower(0);  // Stop conveyor when indexer stops
+            // Only stop conveyor if intake is not running
+            if (Math.abs(intake.getPower()) <= 0.1) {
+                conveyor.setPower(0);
+            }
             return;
         }
         
@@ -544,7 +551,10 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
                 // Indexer is stuck - put in float mode
                 // DO NOT update indexorLastSuccessfulPosition - keep previous successful position
                 indexor.setPower(0);
-                conveyor.setPower(0);  // Stop conveyor when indexer gets stuck
+                // Only stop conveyor if intake is not running
+                if (Math.abs(intake.getPower()) <= 0.1) {
+                    conveyor.setPower(0);
+                }
                 indexor.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
                 indexor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
                 indexorMoving = false;
