@@ -41,11 +41,6 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
     // Declare color sensor for intake ball detection
     private NormalizedColorSensor colorSensorIntake;
     
-    // Declare color sensors for indexer ball detection (3 positions)
-    private NormalizedColorSensor colorSensorIndexer1;  // First position
-    private NormalizedColorSensor colorSensorIndexer2;  // Second position  
-    private NormalizedColorSensor colorSensorIndexer3;  // Third position
-    
     // Declare mecanum drive motors
     private DcMotorEx leftFront;
     private DcMotorEx rightFront;
@@ -66,11 +61,6 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
     // Ball detection variables
     private boolean ballDetectedIntake = false;
     private boolean previousBallDetectedIntake = false;
-    
-    // Indexer ball detection variables (3 positions)
-    private boolean ballDetectedIndexer1 = false;  // Ball in first position
-    private boolean ballDetectedIndexer2 = false;  // Ball in second position
-    private boolean ballDetectedIndexer3 = false;  // Ball in third position
     
     // Indexor control variables
     private double indexorLastSuccessfulPosition = 0.0;  // Last successful indexor position
@@ -197,27 +187,9 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
         colorSensorIntake = hardwareMap.get(NormalizedColorSensor.class, "colorSensorEntry");
         colorSensorIntake.setGain((float)COLOR_SENSOR_GAIN);
         
-        // Initialize indexer color sensors
-        colorSensorIndexer1 = hardwareMap.get(NormalizedColorSensor.class, "colorSensorIndexer1");
-        colorSensorIndexer2 = hardwareMap.get(NormalizedColorSensor.class, "colorSensorIndexer2");
-        colorSensorIndexer3 = hardwareMap.get(NormalizedColorSensor.class, "colorSensorIndexer3");
-        
-        colorSensorIndexer1.setGain((float)COLOR_SENSOR_GAIN);
-        colorSensorIndexer2.setGain((float)COLOR_SENSOR_GAIN);
-        colorSensorIndexer3.setGain((float)COLOR_SENSOR_GAIN);
-        
-        // Enable LED lights if available
+        // Enable LED light if available
         if (colorSensorIntake instanceof SwitchableLight) {
             ((SwitchableLight)colorSensorIntake).enableLight(true);
-        }
-        if (colorSensorIndexer1 instanceof SwitchableLight) {
-            ((SwitchableLight)colorSensorIndexer1).enableLight(true);
-        }
-        if (colorSensorIndexer2 instanceof SwitchableLight) {
-            ((SwitchableLight)colorSensorIndexer2).enableLight(true);
-        }
-        if (colorSensorIndexer3 instanceof SwitchableLight) {
-            ((SwitchableLight)colorSensorIndexer3).enableLight(true);
         }
         
         // Set mecanum drive motor directions
@@ -286,16 +258,6 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
         
         // Detect ball using alpha channel
         ballDetectedIntake = colorsIntake.alpha > BALL_DETECTION_THRESHOLD;
-        
-        // Read indexer color sensors
-        NormalizedRGBA colorsIndexer1 = colorSensorIndexer1.getNormalizedColors();
-        NormalizedRGBA colorsIndexer2 = colorSensorIndexer2.getNormalizedColors();
-        NormalizedRGBA colorsIndexer3 = colorSensorIndexer3.getNormalizedColors();
-        
-        // Detect balls in indexer positions
-        ballDetectedIndexer1 = colorsIndexer1.alpha > BALL_DETECTION_THRESHOLD;
-        ballDetectedIndexer2 = colorsIndexer2.alpha > BALL_DETECTION_THRESHOLD;
-        ballDetectedIndexer3 = colorsIndexer3.alpha > BALL_DETECTION_THRESHOLD;
     }
     
     private void handleGamepad1Controls() {
@@ -358,47 +320,15 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
     }
     
     /**
-     * Check if indexer is full (all 3 positions have balls)
-     */
-    private boolean isIndexerFull() {
-        return ballDetectedIndexer1 && ballDetectedIndexer2 && ballDetectedIndexer3;
-    }
-    
-    /**
-     * Get number of balls currently in indexer
-     */
-    private int getIndexerBallCount() {
-        int count = 0;
-        if (ballDetectedIndexer1) count++;
-        if (ballDetectedIndexer2) count++;
-        if (ballDetectedIndexer3) count++;
-        return count;
-    }
-    
-    /**
      * Function Intake (gamepad1 A button)
      * 1) Run the intake wheels forward
      * 2) Run the conveyor forward  
      * 3) Advance the indexer forward when ball detected in the intake sensor
-     * 4) Stop intake when indexer has 3 balls (detected by color sensors)
      */
     private void intakeFunction() {
         boolean intakeRunning = Math.abs(intake.getPower()) > 0.1;
-        int ballCount = getIndexerBallCount();
-        boolean indexerFull = isIndexerFull();
         
         if (!intakeRunning) {
-            // Check if indexer is full before starting intake
-            if (indexerFull) {
-                telemetry.addData("⚠️ Intake", "Cannot start - Indexer FULL (3 balls detected)");
-                telemetry.addData("Ball Status", "Pos1:%s Pos2:%s Pos3:%s", 
-                    ballDetectedIndexer1 ? "🔴" : "⚪",
-                    ballDetectedIndexer2 ? "🔴" : "⚪", 
-                    ballDetectedIndexer3 ? "🔴" : "⚪");
-                telemetry.update();
-                return;
-            }
-            
             // Start intake
             intake.setPower(INTAKE_POWER);           // 1) Run intake wheels forward
             conveyor.setPower(CONVEYOR_POWER);       // 2) Run conveyor forward
@@ -407,7 +337,6 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
             telemetry.addData("Intake Power", "%.1f", INTAKE_POWER);
             telemetry.addData("Conveyor Power", "%.1f", CONVEYOR_POWER);
             telemetry.addData("Ball Detection", "Monitoring for auto-advance");
-            telemetry.addData("Indexer Status", "%d/3 balls", ballCount);
         } else {
             // Stop intake
             intake.setPower(0);
@@ -416,23 +345,14 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
             telemetry.addData("⏹️ Intake Function", "STOPPED");
         }
         
-        // Auto-stop intake if indexer becomes full while running
-        if (intakeRunning && indexerFull && !indexorMoving) {
-            intake.setPower(0);
-            conveyor.setPower(0);
-            telemetry.addData("🛑 Auto Stop", "Indexer FULL - intake stopped");
-            telemetry.addData("Ball Count", "3/3 balls detected");
-            telemetry.addData("Status", "Ready to shoot!");
-        }
-        
         // 3) Advance the indexer forward when ball detected in the intake sensor
         // Check for rising edge of ball detection during intake
         if (ballDetectedIntake && !previousBallDetectedIntake) {
             // Ball detected - check if intake is running
             boolean currentIntakeRunning = Math.abs(intake.getPower()) > 0.1 && intake.getPower() > 0;
             
-            if (currentIntakeRunning && !indexorMoving && !indexerFull) {
-                // Auto-advance indexer when ball detected during intake (if not full)
+            if (currentIntakeRunning && !indexorMoving) {
+                // Auto-advance indexer when ball detected during intake
                 advanceIndexer();
                 telemetry.addData("🎾 Auto Advance", "Ball detected - advancing indexer");
             }
@@ -695,15 +615,6 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
         String ballStatus = ballDetectedIntake ? "🔴 DETECTED" : "⚪ CLEAR";
         telemetry.addData("Intake Sensor", "%s", ballStatus);
         
-        // Indexer ball detection status
-        int ballCount = getIndexerBallCount();
-        String indexerStatus = isIndexerFull() ? "FULL" : String.format("%d/3", ballCount);
-        telemetry.addData("Indexer Sensors", "Pos1:%s Pos2:%s Pos3:%s", 
-            ballDetectedIndexer1 ? "🔴" : "⚪",
-            ballDetectedIndexer2 ? "🔴" : "⚪", 
-            ballDetectedIndexer3 ? "🔴" : "⚪");
-        telemetry.addData("Indexer Status", "%s (%s)", indexerStatus, isIndexerFull() ? "Ready to shoot!" : "Can accept balls");
-        
         // Check for automatic indexer advancement based on ball detection
         checkAutomaticIndexerAdvance();
         
@@ -712,13 +623,12 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
         telemetry.addData("Conveyor Power", "%.2f", conveyor.getPower());
         telemetry.addData("Indexor Power", "%.2f", indexor.getPower());
         
-        // Indexer position and ball detection
+        // Indexer position
         int currentPosition = indexor.getCurrentPosition();
         double logicalPosition = (indexorLastSuccessfulPosition % INDEXOR_TICKS_PER_REVOLUTION) / INDEXOR_TICKS_PER_120_DEGREES;
         telemetry.addData("Indexor Position", "Current: %d, Last Successful: %.1f", 
             currentPosition, indexorLastSuccessfulPosition);
-        telemetry.addData("Encoder Position", "%.1f (%.0f degrees)", logicalPosition, logicalPosition * 120);
-        telemetry.addData("Sensor Ball Count", "%d/3 balls detected", getIndexerBallCount());
+        telemetry.addData("Logical Position", "%.1f (%.0f degrees)", logicalPosition, logicalPosition * 120);
         
         // Shooter status
         if (shooterRunning) {
