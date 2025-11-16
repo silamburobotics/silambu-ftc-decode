@@ -103,7 +103,7 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
     public static final double BALL_DETECTION_THRESHOLD = 0.15;
     
     // Trigger servo positions
-    public static final double TRIGGER_FIRE = 0.05;     // Fire position (27.0 degrees)
+    public static final double TRIGGER_FIRE = 0.0;     // Fire position (27.0 degrees)
     public static final double TRIGGER_HOME = 0.5;     // Home position (104.4 degrees)
     public static final double TRIGGER_FIRE_DURATION = 0.5;  // Fire duration in seconds
     
@@ -759,10 +759,10 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
             backRightPower /= maxPower;
         }
         
-        leftFront.setPower(frontLeftPower);
-        rightFront.setPower(frontRightPower);
-        leftBack.setPower(backLeftPower);
-        rightBack.setPower(backRightPower);
+        leftFront.setPower(backLeftPower);
+        rightFront.setPower(backRightPower);
+        leftBack.setPower(frontLeftPower);
+        rightBack.setPower(frontRightPower);
     }
     
     private void updateTelemetry() {
