@@ -36,6 +36,7 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
     
     // Declare servos
     private CRServo shooterServo;
+    private Servo speedLight;
     private Servo triggerServo;
     
     // Declare color sensor for intake ball detection
@@ -75,6 +76,8 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
     // Shooter variables
     private boolean shooterRunning = false;
     private double currentShooterVelocity = 1300;  // Default velocity
+    private ElapsedTime shooterStabilizationTimer = new ElapsedTime(); // Timer for speed stabilization
+    private boolean shooterSpeedStable = false; // Track if speed is stable
     
     // Trigger sequence variables
     private boolean triggerSequenceActive = false;
@@ -100,9 +103,20 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
     public static final double BALL_DETECTION_THRESHOLD = 0.15;
     
     // Trigger servo positions
-    public static final double TRIGGER_FIRE = 0.05;     // Fire position (27.0 degrees)
-    public static final double TRIGGER_HOME = 0.5;     // Home position (104.4 degrees)
+    public static final double TRIGGER_FIRE = 0.15;     // Fire position (27.0 degrees)
+    public static final double TRIGGER_HOME = 0.58;     // Home position (104.4 degrees)
     public static final double TRIGGER_FIRE_DURATION = 0.5;  // Fire duration in seconds
+    
+    // Speed light control settings (using servo positions for LED control)
+    public static final double LIGHT_OFF_POSITION = 0.0;      // Servo position for light off
+    public static final double LIGHT_GREEN_POSITION = 0.5;    // Servo position for green light
+    public static final double LIGHT_WHITE_POSITION = 1.0;    // Servo position for white light
+    
+    // Speed monitoring thresholds
+    public static final double SHOOTER_SPEED_THRESHOLD = 0.95; // 95% of target speed for green light
+    public static final double SHOOTER_MIN_SPEED_THRESHOLD = 0.85; // 85% minimum for white light
+    public static final double SHOOTER_SPEED_TOLERANCE = 50;       // ticks/sec tolerance for "stable" speed
+    public static final double SHOOTER_STABILIZATION_TIME = 1.0;   // Seconds to wait for speed stabilization
     
     // Indexor stuck detection
     public static final double INDEXOR_STUCK_TIMEOUT = 0.5;  // 0.5 seconds as specified
@@ -151,6 +165,8 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
             handleGamepad2Controls();
             handleIndexorStuckDetection();
             handleTriggerSequence();
+            updateShooterSpeedMonitoring();
+            updateSpeedLight();
             handleMecanumDrive();
             updateTelemetry();
             sleep(20);
@@ -166,6 +182,7 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
         
         // Initialize servos
         shooterServo = hardwareMap.get(CRServo.class, "shooterServo");
+        speedLight = hardwareMap.get(Servo.class, "speedLight");
         triggerServo = hardwareMap.get(Servo.class, "triggerServo");
         
         // Initialize mecanum drive motors
@@ -182,9 +199,11 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
         
         // Set servo directions
         shooterServo.setDirection(DcMotorSimple.Direction.REVERSE);
+        speedLight.setDirection(Servo.Direction.FORWARD);
         triggerServo.setDirection(Servo.Direction.FORWARD);
         
-        // Initialize trigger servo to home position
+        // Initialize servos to default positions
+        speedLight.setPosition(LIGHT_OFF_POSITION);
         triggerServo.setPosition(TRIGGER_HOME);
         
         // Initialize color sensor
@@ -444,6 +463,7 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
             shooterServo.setPower(0);
             shooterRunning = false;
             currentShooterVelocity = 0;
+            shooterSpeedStable = false;
             
             telemetry.addData("⏹️ Shooter STOPPED", "Was running at %.0f ticks/sec", velocity);
             telemetry.addData("Shooter Status", "OFF");
@@ -453,6 +473,8 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
             shooterServo.setPower(SHOOTER_SERVO_POWER);
             shooterRunning = true;
             currentShooterVelocity = velocity;
+            shooterStabilizationTimer.reset();
+            shooterSpeedStable = false;
             
             telemetry.addData("🎯 Shooter STARTED", "%.0f ticks/sec", velocity);
             telemetry.addData("Shooter Status", "RUNNING");
@@ -652,6 +674,50 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
         }
     }
     
+    private void updateShooterSpeedMonitoring() {
+        if (!shooterRunning) {
+            return;
+        }
+        
+        double currentVelocity = shooter.getVelocity();
+        double speedError = Math.abs(currentVelocity - currentShooterVelocity);
+        double stabilizationTime = shooterStabilizationTimer.seconds();
+        
+        // Check if speed is within tolerance
+        boolean speedWithinTolerance = speedError <= SHOOTER_SPEED_TOLERANCE;
+        
+        if (speedWithinTolerance && stabilizationTime >= SHOOTER_STABILIZATION_TIME) {
+            shooterSpeedStable = true;
+        } else if (!speedWithinTolerance) {
+            // Speed drifted - reset stabilization timer
+            shooterStabilizationTimer.reset();
+            shooterSpeedStable = false;
+        }
+    }
+    
+    private void updateSpeedLight() {
+        if (!shooterRunning) {
+            // Shooter is off - speed light should be off
+            speedLight.setPosition(LIGHT_OFF_POSITION);
+            return;
+        }
+        
+        // Shooter is on - check speed and stability
+        double currentVelocity = shooter.getVelocity();
+        double speedPercentage = currentVelocity / currentShooterVelocity;
+        
+        if (shooterSpeedStable && speedPercentage > SHOOTER_SPEED_THRESHOLD) {
+            // Speed is optimal and stable - green light (95%+ and stable)
+            speedLight.setPosition(LIGHT_GREEN_POSITION);
+        } else if (currentVelocity > 50 && speedPercentage > SHOOTER_MIN_SPEED_THRESHOLD) {
+            // Speed is acceptable but may not be stable - white light (85%+ of target)
+            speedLight.setPosition(LIGHT_WHITE_POSITION);
+        } else {
+            // Speed is too low for consistent shooting - off (no light)
+            speedLight.setPosition(LIGHT_OFF_POSITION);
+        }
+    }
+    
     private void handleMecanumDrive() {
         // Standard mecanum drive
         double drive = -gamepad1.left_stick_y * DRIVE_SPEED_MULTIPLIER;
@@ -707,10 +773,26 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
         
         // Shooter status
         if (shooterRunning) {
-            telemetry.addData("Shooter", "RUNNING at %.0f ticks/sec", currentShooterVelocity);
-            telemetry.addData("Current Velocity", "%.0f ticks/sec", shooter.getVelocity());
+            double currentVelocity = shooter.getVelocity();
+            double speedPercentage = (currentVelocity / currentShooterVelocity) * 100;
+            String stabilityStatus = shooterSpeedStable ? "STABLE" : "STABILIZING";
+            String lightStatus;
+            
+            if (shooterSpeedStable && speedPercentage >= SHOOTER_SPEED_THRESHOLD * 100) {
+                lightStatus = "🟢 GREEN (READY TO FIRE)";
+            } else if (speedPercentage >= SHOOTER_MIN_SPEED_THRESHOLD * 100) {
+                lightStatus = "⚪ WHITE (SPINNING UP)";
+            } else {
+                lightStatus = "⚫ OFF (TOO SLOW)";
+            }
+            
+            telemetry.addData("Shooter", "RUNNING at %.0f ticks/sec (%.0f%% - %s)", 
+                currentShooterVelocity, speedPercentage, stabilityStatus);
+            telemetry.addData("Current Velocity", "%.0f ticks/sec", currentVelocity);
+            telemetry.addData("Speed Light", "%s", lightStatus);
         } else {
             telemetry.addData("Shooter", "STOPPED");
+            telemetry.addData("Speed Light", "⚫ OFF");
         }
         
         // Trigger status
