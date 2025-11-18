@@ -61,8 +61,8 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
     private boolean previousY1 = false;  // Gamepad1 Y button (shooter speed 1600)
     private boolean previousB2 = false;  // Gamepad2 B button (trigger)
     private boolean previousX2 = false;  // Gamepad2 X button (advance indexer)
-    private boolean previousLeftBumper2 = false;  // Gamepad2 left bumper (indexer +5 degrees)
-    private boolean previousLeftTrigger2 = false;  // Gamepad2 left trigger (indexer -5 degrees)
+    private boolean previousLeftBumper2 = false;  // Gamepad2 left bumper (indexer +10 degrees)
+    private boolean previousLeftTrigger2 = false;  // Gamepad2 left trigger (indexer -10 degrees)
     
     // Ball detection variables
     private boolean ballDetectedIntake = false;
@@ -96,7 +96,7 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
     public static final double INDEXOR_TICKS_PER_REVOLUTION = 537.7;  // goBILDA 312 RPM motor
     public static final double INDEXOR_TICKS_PER_120_DEGREES = INDEXOR_TICKS_PER_REVOLUTION / 3.0;  // 179.23 ticks per 120°
     public static final double INDEXOR_TICKS_PER_DEGREE = INDEXOR_TICKS_PER_REVOLUTION / 360.0;  // ~1.49 ticks per degree
-    public static final double INDEXOR_TICKS_PER_5_DEGREES = INDEXOR_TICKS_PER_DEGREE * 5.0;  // ~7.47 ticks per 5°
+    public static final double INDEXOR_TICKS_PER_10_DEGREES = INDEXOR_TICKS_PER_DEGREE * 10.0;  // ~14.94 ticks per 10°
     
     // Shooter velocity settings
     public static final double SHOOTER_TARGET_VELOCITY_BUTTON = 1300;  // Button-based velocity
@@ -358,14 +358,14 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
             triggerFunction();
         }
         
-        // Handle Left Bumper - Increment indexer rotation by 5 degrees
+        // Handle Left Bumper - Increment indexer rotation by 10 degrees
         if (currentLeftBumper2 && !previousLeftBumper2) {
-            adjustIndexerRotation(5);
+            adjustIndexerRotation(10);
         }
         
-        // Handle Left Trigger - Decrement indexer rotation by 5 degrees
+        // Handle Left Trigger - Decrement indexer rotation by 10 degrees
         if (currentLeftTrigger2 && !previousLeftTrigger2) {
-            adjustIndexerRotation(-5);
+            adjustIndexerRotation(-10);
         }
         
         // Update previous states
@@ -627,11 +627,6 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
         indexorTimer.reset();
         indexorMoving = true;
         indexorStartPosition = currentPosition;
-        
-        // Run conveyor when indexer is running
-        if (Math.abs(conveyor.getPower()) <= 0.1) {
-            conveyor.setPower(CONVEYOR_POWER);
-        }
         
         telemetry.addData("🎯 Fine Adjust", "%.1f° (%.1f ticks)", degrees, adjustmentTicks);
         telemetry.addData("Current Position", "%d ticks", currentPosition);
