@@ -380,28 +380,20 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
      * 1) Run the intake wheels forward
      * 2) Run the conveyor forward  
      * 3) Advance the indexer forward when ball detected in the intake sensor
-     * 4) Stop intake when exit sensor detects a ball
+     * Note: Exit sensor auto-stop removed due to false detection issues
      */
     private void intakeFunction() {
         boolean intakeRunning = Math.abs(intake.getPower()) > 0.1;
         
         if (!intakeRunning) {
-            // Check if exit sensor already has a ball before starting intake
-            if (ballDetectedExit) {
-                telemetry.addData("⚠️ Intake", "Cannot start - Exit sensor FULL");
-                telemetry.addData("Exit Sensor", "🔴 Ball detected");
-                telemetry.update();
-                return;
-            }
-            
-            // Start intake
+            // Start intake (removed exit sensor check due to false detections)
             intake.setPower(INTAKE_POWER);           // 1) Run intake wheels forward
             conveyor.setPower(CONVEYOR_POWER);       // 2) Run conveyor forward
             
             telemetry.addData("✅ Intake Function", "STARTED");
             telemetry.addData("Intake Power", "%.1f", INTAKE_POWER);
             telemetry.addData("Conveyor Power", "%.1f", CONVEYOR_POWER);
-            telemetry.addData("Ball Detection", "Monitoring for auto-advance and auto-stop");
+            telemetry.addData("Ball Detection", "Monitoring for auto-advance");
         } else {
             // Stop intake (but check if indexer is running before stopping conveyor)
             intake.setPower(0);
@@ -412,25 +404,14 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
             telemetry.addData("⏹️ Intake Function", "STOPPED");
         }
         
-        // 4) Auto-stop intake if exit sensor detects a ball while running
-        if (intakeRunning && ballDetectedExit && !indexorMoving) {
-            intake.setPower(0);
-            if (!indexorMoving) {
-                conveyor.setPower(0);  // Only stop conveyor if indexer is not running
-            }
-            telemetry.addData("🛑 Auto Stop", "Exit sensor FULL - intake stopped");
-            telemetry.addData("Exit Sensor", "🔴 Ball detected");
-            telemetry.addData("Status", "Ready for next operation!");
-        }
-        
         // 3) Advance the indexer forward when ball detected in the intake sensor
         // Check for rising edge of ball detection during intake
         if (ballDetectedIntake && !previousBallDetectedIntake) {
             // Ball detected - check if intake is running
             boolean currentIntakeRunning = Math.abs(intake.getPower()) > 0.1 && intake.getPower() > 0;
             
-            if (currentIntakeRunning && !indexorMoving && !ballDetectedExit) {
-                // Auto-advance indexer when ball detected during intake (if exit not full)
+            if (currentIntakeRunning && !indexorMoving) {
+                // Auto-advance indexer when ball detected during intake
                 advanceIndexer();
                 telemetry.addData("🎾 Auto Advance", "Ball detected - advancing indexer");
             }
