@@ -61,6 +61,8 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
     private boolean previousY1 = false;  // Gamepad1 Y button (shooter speed 1600)
     private boolean previousB2 = false;  // Gamepad2 B button (trigger)
     private boolean previousX2 = false;  // Gamepad2 X button (advance indexer)
+    private boolean previousLeftBumper2 = false;  // Gamepad2 left bumper (indexer +5 degrees)
+    private boolean previousLeftTrigger2 = false;  // Gamepad2 left trigger (indexer -5 degrees)
     
     // Ball detection variables
     private boolean ballDetectedIntake = false;
@@ -93,6 +95,8 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
     // Indexor position settings
     public static final double INDEXOR_TICKS_PER_REVOLUTION = 537.7;  // goBILDA 312 RPM motor
     public static final double INDEXOR_TICKS_PER_120_DEGREES = INDEXOR_TICKS_PER_REVOLUTION / 3.0;  // 179.23 ticks per 120°
+    public static final double INDEXOR_TICKS_PER_DEGREE = INDEXOR_TICKS_PER_REVOLUTION / 360.0;  // ~1.49 ticks per degree
+    public static final double INDEXOR_TICKS_PER_5_DEGREES = INDEXOR_TICKS_PER_DEGREE * 5.0;  // ~7.47 ticks per 5°
     
     // Shooter velocity settings
     public static final double SHOOTER_TARGET_VELOCITY_BUTTON = 1300;  // Button-based velocity
@@ -341,6 +345,8 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
         // Get current button states for gamepad2
         boolean currentX2 = gamepad2.x;
         boolean currentB2 = gamepad2.b;
+        boolean currentLeftBumper2 = gamepad2.left_bumper;
+        boolean currentLeftTrigger2 = gamepad2.left_trigger > 0.5;  // Treat trigger as button when > 50%
         
         // Handle X button - Advance Indexer
         if (currentX2 && !previousX2) {
@@ -352,9 +358,21 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
             triggerFunction();
         }
         
+        // Handle Left Bumper - Increment indexer rotation by 5 degrees
+        if (currentLeftBumper2 && !previousLeftBumper2) {
+            adjustIndexerRotation(5);
+        }
+        
+        // Handle Left Trigger - Decrement indexer rotation by 5 degrees
+        if (currentLeftTrigger2 && !previousLeftTrigger2) {
+            adjustIndexerRotation(-5);
+        }
+        
         // Update previous states
         previousX2 = currentX2;
         previousB2 = currentB2;
+        previousLeftBumper2 = currentLeftBumper2;
+        previousLeftTrigger2 = currentLeftTrigger2;
     }
     
     /**
@@ -599,6 +617,46 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
                 telemetry.update();
             }
         }
+    }
+    
+    /**
+     * Adjust indexer rotation by specified degrees
+     * @param degrees positive for clockwise, negative for counter-clockwise
+     */
+    private void adjustIndexerRotation(double degrees) {
+        // Check if indexer is already moving
+        if (indexorMoving) {
+            telemetry.addData("⚠️ Indexer", "Already moving - cannot adjust");
+            return;
+        }
+        
+        // Calculate ticks for the adjustment
+        double adjustmentTicks = degrees * INDEXOR_TICKS_PER_DEGREE;
+        
+        // Get current position (use actual position for fine adjustments)
+        int currentPosition = indexor.getCurrentPosition();
+        double targetPosition = currentPosition + adjustmentTicks;
+        
+        // Set target position
+        indexor.setTargetPosition((int) Math.round(targetPosition));
+        indexor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+        indexor.setPower(INDEXOR_POWER * 0.5);  // Use half power for fine adjustments
+        
+        // Start timing and tracking
+        indexorTimer.reset();
+        indexorMoving = true;
+        indexorStartPosition = currentPosition;
+        
+        // Run conveyor when indexer is running
+        if (Math.abs(conveyor.getPower()) <= 0.1) {
+            conveyor.setPower(CONVEYOR_POWER);
+        }
+        
+        telemetry.addData("🎯 Fine Adjust", "%.1f° (%.1f ticks)", degrees, adjustmentTicks);
+        telemetry.addData("Current Position", "%d ticks", currentPosition);
+        telemetry.addData("Target Position", "%.1f ticks", targetPosition);
+        telemetry.addData("Direction", degrees > 0 ? "Clockwise" : "Counter-clockwise");
+        telemetry.update();
     }
     
     private double determineShooterVelocity() {
