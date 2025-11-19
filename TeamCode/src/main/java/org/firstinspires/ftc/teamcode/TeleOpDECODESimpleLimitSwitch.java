@@ -7,6 +7,7 @@ import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.DcMotorEx;
 import com.qualcomm.robotcore.hardware.DcMotorSimple;
 import com.qualcomm.robotcore.hardware.CRServo;
+import com.qualcomm.robotcore.hardware.DigitalChannel;
 import com.qualcomm.robotcore.hardware.Servo;
 import com.qualcomm.robotcore.hardware.NormalizedColorSensor;
 import com.qualcomm.robotcore.hardware.NormalizedRGBA;
@@ -26,8 +27,8 @@ import java.util.List;
 import android.util.Size;
 
 @Config
-@TeleOp(name = "TeleOpDECODESimple2", group = "TeleOp")
-public class TeleOpDECODESimple2 extends LinearOpMode {
+@TeleOp(name = "TeleOpDECODESimpleSwitch", group = "TeleOp")
+public class TeleOpDECODESimpleLimitSwitch extends LinearOpMode {
     
     // Declare motors
     private DcMotorEx indexor;
@@ -47,7 +48,7 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
     private NormalizedColorSensor colorSensorExit;
     
     // Declare limit switch for indexer position control
-    private TouchSensor indexerLimitSwitch;
+    private DigitalChannel indexerLimitSwitch;
     
     // Declare mecanum drive motors
     private DcMotorEx leftFront;
@@ -223,8 +224,9 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
         colorSensorExit.setGain((float)COLOR_SENSOR_GAIN);
         
         // Initialize indexer limit switch
-        indexerLimitSwitch = hardwareMap.get(TouchSensor.class, "indexerTimer");
-        
+        indexerLimitSwitch  = hardwareMap.get(DigitalChannel.class, "limitSwitch");
+        indexerLimitSwitch .setMode(DigitalChannel.Mode.INPUT);
+
         // Enable LED light if available
         if (colorSensorIntake instanceof SwitchableLight) {
             ((SwitchableLight)colorSensorIntake).enableLight(true);
@@ -503,7 +505,7 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
         
         // Get current actual position for telemetry
         double currentActualPosition = (double) indexor.getCurrentPosition();
-        boolean limitSwitchPressed = indexerLimitSwitch.isPressed();
+        boolean limitSwitchPressed = indexerLimitSwitch.getState();
         
         // Set indexer to run without encoder (direct power control)
         indexor.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
@@ -533,7 +535,7 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
             return;
         }
         
-        boolean limitSwitchPressed = indexerLimitSwitch.isPressed();
+        boolean limitSwitchPressed = indexerLimitSwitch.getState();
         
         // Check if limit switch is released (target reached)
         if (!limitSwitchPressed) {
@@ -814,7 +816,7 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
         telemetry.addData("Indexer Moving", "%s", indexorMoving ? "YES" : "NO");
         
         // Limit Switch Status
-        boolean limitSwitchPressed = indexerLimitSwitch.isPressed();
+        boolean limitSwitchPressed = indexerLimitSwitch.getState();
         telemetry.addData("Limit Switch", "%s", limitSwitchPressed ? "🔴 PRESSED" : "🟢 RELEASED");
         telemetry.addData("Control Method", "LIMIT SWITCH (continuous until released)");
         
