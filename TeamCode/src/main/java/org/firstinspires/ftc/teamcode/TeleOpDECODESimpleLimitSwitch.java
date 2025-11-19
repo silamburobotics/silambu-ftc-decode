@@ -146,12 +146,11 @@ public class TeleOpDECODESimpleLimitSwitch extends LinearOpMode {
         initializeMotors();
         initializeAprilTag();
         
-        // Always reset encoder - limit switch release is the ONLY true intended position
-        // Do NOT carry forward autonomous position - it's invalid
-        initializeEncoderWithLimitSwitch();
+        // Preserve indexor position from autonomous - do not reset
+        indexorLastSuccessfulPosition = indexor.getCurrentPosition();
         
         telemetry.addData("Status", "TeleOpDECODESimple2 - Initialized");
-        telemetry.addData("Indexor Position", "Always reset to 0 - only limit switch release = intended");
+        telemetry.addData("Indexor Position", "Preserved: %.1f ticks", indexorLastSuccessfulPosition);
         telemetry.addData("", "");
         telemetry.addData("GAMEPAD1 CONTROLS:", "");
         telemetry.addData("A", "Intake Function");
@@ -293,37 +292,6 @@ public class TeleOpDECODESimpleLimitSwitch extends LinearOpMode {
             visionPortal = null;
             aprilTag = null;
         }
-    }
-    
-    /**
-     * Initialize encoder position based on limit switch state on startup
-     * ALWAYS reset encoder - limit switch release is the ONLY true reference position
-     * Any autonomous position is invalid since only limit switch release = intended position
-     */
-    private void initializeEncoderWithLimitSwitch() {
-        boolean limitSwitchPressed = indexerLimitSwitch.getState();
-        
-        // ALWAYS reset encoder to zero - only limit switch release position is valid reference
-        indexor.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
-        indexor.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
-        indexorLastSuccessfulPosition = 0.0;
-        
-        if (!limitSwitchPressed) {
-            // Perfect! Starting at the intended reference position (limit switch released)
-            telemetry.addData("✅ Perfect Startup", "At intended position - limit switch RELEASED");
-            telemetry.addData("🎯 Reference", "Encoder reset to 0 at true intended position");
-            telemetry.addData("Ready", "System ready for precise 120° movements");
-        } else {
-            // Starting at non-intended position (limit switch pressed)
-            telemetry.addData("⚠️ Non-Intended Start", "Limit switch PRESSED - not at intended position");
-            telemetry.addData("🔄 Encoder Reset", "Reset to 0 anyway - will find intended position");
-            telemetry.addData("💡 Next Step", "Move indexer until limit switch releases for intended position");
-        }
-        
-        telemetry.addData("Startup Limit Switch", "%s", limitSwitchPressed ? "🔴 PRESSED (non-intended)" : "🟢 RELEASED (intended)");
-        telemetry.addData("Encoder Position", "0 (always reset on startup)");
-        telemetry.addData("Control Method", "ENCODER + Reset on limit switch release = intended position");
-        telemetry.update();
     }
     
     private void readColorSensors() {
@@ -524,10 +492,9 @@ public class TeleOpDECODESimpleLimitSwitch extends LinearOpMode {
     
     /**
      * Function Advance Indexer
-     * 1) Reset encoder when limit switch is false (released) = INTENDED POSITION
+     * 1) Reset encoder when limit switch is false (released)
      * 2) Rotate indexer 120 degrees using encoder positioning
-     * 3) Limit switch released = ONLY valid reference position (not in-between positions)
-     * Note: Autonomous positions are invalid - only limit switch release = intended position
+     * 3) Limit switch released = reference position for encoder reset
      */
     private void advanceIndexer() {
         // Check if indexer is already moving
