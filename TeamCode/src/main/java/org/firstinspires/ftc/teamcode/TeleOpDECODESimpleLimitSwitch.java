@@ -645,6 +645,12 @@ public class TeleOpDECODESimpleLimitSwitch extends LinearOpMode {
                 return;
             }
         }
+            // Only stop conveyor if intake is not running
+            if (Math.abs(intake.getPower()) <= 0.1) {
+                conveyor.setPower(0);
+            }
+            return;
+        }
         
         // Check for stuck condition (0.5 seconds as specified)
         if (indexorTimer.seconds() > INDEXOR_STUCK_TIMEOUT) {
