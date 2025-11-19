@@ -77,7 +77,6 @@ public class TeleOpDECODESimpleLimitSwitch extends LinearOpMode {
     // Indexor control variables
     private double indexorLastSuccessfulPosition = 0.0;  // Last successful indexor position
     private boolean indexorMoving = false;
-    private boolean hasFoundReferencePosition = false;  // Flag to track if we've found limit switch release reference
     private ElapsedTime indexorTimer = new ElapsedTime();
     private int indexorStartPosition = 0;
     
@@ -493,9 +492,9 @@ public class TeleOpDECODESimpleLimitSwitch extends LinearOpMode {
     
     /**
      * Function Advance Indexer
-     * 1) On first movement: detect first limit switch release and set as encoder zero
-     * 2) On subsequent movements: move 120° from established reference position
-     * 3) Always detect limit switch release during movement to maintain reference
+     * 1) Reset encoder when limit switch is false (released)
+     * 2) Rotate indexer 120 degrees using encoder positioning
+     * 3) Limit switch released = reference position for encoder reset
      */
     private void advanceIndexer() {
         // Check if indexer is already moving
@@ -508,52 +507,45 @@ public class TeleOpDECODESimpleLimitSwitch extends LinearOpMode {
         double currentPosition = (double) indexor.getCurrentPosition();
         boolean limitSwitchPressed = indexerLimitSwitch.getState();
         
-        if (!hasFoundReferencePosition) {
-            // FIRST TIME: Move to find and establish limit switch release as reference
+        // If limit switch is false (released), reset encoder to zero reference position
+        if (!limitSwitchPressed) {
+            indexor.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
             indexor.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
-            indexor.setPower(INDEXOR_POWER);
+            indexorLastSuccessfulPosition = 0.0;
+            currentPosition = 0.0;
             
-            // Start movement tracking
-            indexorMoving = true;
-            indexorTimer.reset();
-            indexorStartPosition = indexor.getCurrentPosition();
-            
-            telemetry.addData("� Finding Reference", "Moving to detect first limit switch release");
-            telemetry.addData("Current Position", "%.1f ticks", currentPosition);
-            telemetry.addData("Limit Switch", "%s", limitSwitchPressed ? "🔴 PRESSED" : "🟢 RELEASED");
-            telemetry.addData("💡 Will Stop", "At first limit switch release to set zero reference");
-            
-        } else {
-            // REFERENCE ESTABLISHED: Move 120° from current position
-            double targetPosition = currentPosition + INDEXOR_TICKS_PER_120_DEGREES;
-            
-            // Set target position using encoder
-            indexor.setTargetPosition((int) Math.round(targetPosition));
-            indexor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
-            indexor.setPower(INDEXOR_POWER);
-            
-            // Start movement tracking
-            indexorMoving = true;
-            indexorTimer.reset();
-            indexorStartPosition = indexor.getCurrentPosition();
-            
-            telemetry.addData("🎯 120° Movement", "From established reference position");
-            telemetry.addData("Current Position", "%.1f ticks", currentPosition);
-            telemetry.addData("Target Position", "%.1f ticks", targetPosition);
-            telemetry.addData("Advance", "%.1f° (%.1f ticks)", 120.0, INDEXOR_TICKS_PER_120_DEGREES);
+            telemetry.addData("🔄 Encoder Reset", "Limit switch RELEASED - encoder reset to 0");
+            telemetry.addData("New Reference", "Position: 0, Last Successful: 0");
         }
+        
+        // Calculate target position (advance by 120 degrees from current position)
+        double targetPosition = currentPosition + INDEXOR_TICKS_PER_120_DEGREES;
+        
+        // Set target position using encoder
+        indexor.setTargetPosition((int) Math.round(targetPosition));
+        indexor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+        indexor.setPower(INDEXOR_POWER);
         
         // Run conveyor when indexer is running
         conveyor.setPower(CONVEYOR_POWER);
         
-        telemetry.addData("Reference Status", hasFoundReferencePosition ? "✅ Established" : "� Seeking");
-        telemetry.addData("Control Method", "Detect first limit switch release = zero reference");
+        // Start movement tracking
+        indexorMoving = true;
+        indexorTimer.reset();
+        indexorStartPosition = indexor.getCurrentPosition();
+        
+        telemetry.addData("🎯 Advance Indexer", "120° rotation with encoder reset on limit switch release");
+        telemetry.addData("Current Position", "%.1f ticks", currentPosition);
+        telemetry.addData("Target Position", "%.1f ticks", targetPosition);
+        telemetry.addData("Advance", "%.1f° (%.1f ticks)", 120.0, INDEXOR_TICKS_PER_120_DEGREES);
+        telemetry.addData("Limit Switch", "%s", limitSwitchPressed ? "🔴 PRESSED" : "🟢 RELEASED (reset trigger)");
+        telemetry.addData("Control Method", "ENCODER + Reset on limit switch release");
         telemetry.update();
     }
     
     /**
-     * Handle indexer movement - detect first limit switch release OR complete 120° movement
-     * Establishes reference position on first release, then uses precise encoder movements
+     * Handle indexer encoder positioning with limit switch reset on release
+     * Resets encoder when limit switch is false (released)
      */
     private void handleIndexorStuckDetection() {
         if (!indexorMoving) {
@@ -562,89 +554,50 @@ public class TeleOpDECODESimpleLimitSwitch extends LinearOpMode {
         
         boolean limitSwitchPressed = indexerLimitSwitch.getState();
         
-        if (!hasFoundReferencePosition) {
-            // SEEKING MODE: Looking for first limit switch release to establish reference
-            if (!limitSwitchPressed) {
-                // Found it! First limit switch release detected - establish reference
-                indexor.setPower(0);
-                indexor.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
-                indexor.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
-                indexorLastSuccessfulPosition = 0.0;
-                
-                // Mark reference as found
-                hasFoundReferencePosition = true;
-                indexorMoving = false;
-                
-                // Only stop conveyor if intake is not running
-                if (Math.abs(intake.getPower()) <= 0.1) {
-                    conveyor.setPower(0);
-                }
-                
-                telemetry.addData("✅ Reference Found!", "First limit switch release detected");
-                telemetry.addData("🎯 Zero Set", "Encoder reset to 0 at reference position");
-                telemetry.addData("Ready", "Press X again to move 120° from reference");
-                return;
+        // Check if limit switch gets released during movement (reset encoder)
+        if (!limitSwitchPressed) {
+            // Limit switch released during movement - reset encoder to reference position
+            indexor.setPower(0);
+            indexor.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+            indexor.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+            
+            // Update successful position to reset position (0)
+            indexorLastSuccessfulPosition = 0.0;
+            
+            indexorMoving = false;
+            
+            // Only stop conveyor if intake is not running
+            if (Math.abs(intake.getPower()) <= 0.1) {
+                conveyor.setPower(0);
             }
             
-            // Still seeking - check for timeout to prevent infinite seeking
-            if (indexorTimer.seconds() > 10.0) {  // 10 second timeout
-                indexor.setPower(0);
-                indexorMoving = false;
-                
-                telemetry.addData("⚠️ Seek Timeout", "Could not find limit switch release in 10 seconds");
-                telemetry.addData("💡 Check", "Limit switch wiring and indexer movement");
-                return;
-            }
-            
-        } else {
-            // NORMAL MODE: Moving to target position (120 degrees)
-            
-            // During movement: if limit switch releases, update reference but continue
-            if (!limitSwitchPressed) {
-                // Limit switch released during 120° movement - update reference
-                indexor.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
-                indexor.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
-                indexorLastSuccessfulPosition = 0.0;
-                
-                telemetry.addData("🔄 Reference Updated", "Limit switch released during movement - encoder reset");
-                
-                // Continue movement but recalculate target from new zero reference
-                double newTargetPosition = INDEXOR_TICKS_PER_120_DEGREES;
-                indexor.setTargetPosition((int) Math.round(newTargetPosition));
-                indexor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
-                indexor.setPower(INDEXOR_POWER);
-                
-                return;
-            }
-            
-            // Check if indexer reached target position
-            if (!indexor.isBusy()) {
-                // Movement completed - check if we reached target accurately
-                int currentPosition = indexor.getCurrentPosition();
-                int targetPosition = indexor.getTargetPosition();
-                int positionError = Math.abs(currentPosition - targetPosition);
-                
-                if (positionError <= 15) {  // Within 15 ticks tolerance for successful 120° advancement
-                    // Movement completed successfully to target - update successful position
-                    indexorLastSuccessfulPosition = targetPosition;
-                    telemetry.addData("✅ Indexer", "Successfully advanced 120° to %.1f", indexorLastSuccessfulPosition);
-                    telemetry.addData("Limit Switch", "%s", limitSwitchPressed ? "🔴 PRESSED" : "🟢 RELEASED");
-                } else {
-                    // Movement completed but not at target position - DO NOT update successful position
-                    telemetry.addData("⚠️ Indexer", "Reached end but not at target (error: %d ticks)", positionError);
-                    telemetry.addData("Target", "%d, Actual: %d", targetPosition, currentPosition);
-                    telemetry.addData("Keeping Previous", "Successful position: %.1f", indexorLastSuccessfulPosition);
-                }
-                
-                indexorMoving = false;
-                indexor.setPower(0);
-                // Only stop conveyor if intake is not running
-                if (Math.abs(intake.getPower()) <= 0.1) {
-                    conveyor.setPower(0);
-                }
-                return;
-            }
+            telemetry.addData("✅ Indexer", "Limit switch RELEASED - encoder reset to 0");
+            telemetry.addData("New Reference", "Reset to zero position");
+            telemetry.addData("Control Method", "Encoder reset by limit switch release");
+            return;
         }
+        
+        // Check if indexer reached target position
+        if (!indexor.isBusy()) {
+            // Movement completed - check if we reached target accurately
+            int currentPosition = indexor.getCurrentPosition();
+            int targetPosition = indexor.getTargetPosition();
+            int positionError = Math.abs(currentPosition - targetPosition);
+            
+            if (positionError <= 15) {  // Within 15 ticks tolerance for successful 120° advancement
+                // Movement completed successfully to target - update successful position
+                indexorLastSuccessfulPosition = targetPosition;
+                telemetry.addData("✅ Indexer", "Successfully advanced to %.1f", indexorLastSuccessfulPosition);
+                telemetry.addData("Limit Switch", "%s", limitSwitchPressed ? "🔴 PRESSED (position marker)" : "🟢 RELEASED (reset point)");
+            } else {
+                // Movement completed but not at target position - DO NOT update successful position
+                telemetry.addData("⚠️ Indexer", "Reached end but not at target (error: %d ticks)", positionError);
+                telemetry.addData("Target", "%d, Actual: %d", targetPosition, currentPosition);
+                telemetry.addData("Keeping Previous", "Successful position: %.1f", indexorLastSuccessfulPosition);
+            }
+            
+            indexorMoving = false;
+            indexor.setPower(0);
             // Only stop conveyor if intake is not running
             if (Math.abs(intake.getPower()) <= 0.1) {
                 conveyor.setPower(0);
