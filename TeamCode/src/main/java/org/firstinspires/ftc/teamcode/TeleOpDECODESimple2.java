@@ -773,7 +773,7 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
     
     private void handleMecanumDrive() {
         // Standard mecanum drive
-        double drive = -gamepad1.left_stick_y * DRIVE_SPEED_MULTIPLIER;
+        double drive = gamepad1.left_stick_y * DRIVE_SPEED_MULTIPLIER;
         double strafe = gamepad1.left_stick_x * STRAFE_SPEED_MULTIPLIER;
         double turn = -gamepad1.right_stick_x * TURN_SPEED_MULTIPLIER;
         
