@@ -69,6 +69,10 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
     private boolean previousBallDetectedIntake = false;
     private boolean ballDetectedExit = false;
     
+    // Intake control variables
+    private boolean intakeFromGamepad1 = false;  // Track if intake was started by gamepad1 A button
+    private boolean intakeFromGamepad2 = false;  // Track if intake was started by gamepad2 joystick
+    
     // Indexor control variables
     private double indexorLastSuccessfulPosition = 0.0;  // Last successful indexor position
     private boolean indexorMoving = false;
@@ -338,13 +342,13 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
         if (joystickY < -0.1) {  // Negative Y (joystick pushed up) - Outtake Function
             outtakeFunction();
         } else if (joystickY > 0.1) {  // Positive Y (joystick pushed down) - Intake Function
-            intakeFunction();
+            intakeFromJoystick();
         } else {
-            // Stop both functions when joystick released
+            // Stop functions when joystick released - only if they were started by joystick
             if (Math.abs(intake.getPower()) > 0 && intake.getPower() < 0) {
                 stopOuttake();
             }
-            if (Math.abs(intake.getPower()) > 0 && intake.getPower() > 0) {
+            if (intakeFromGamepad2 && Math.abs(intake.getPower()) > 0 && intake.getPower() > 0) {
                 stopIntakeFunction();
             }
         }
@@ -397,6 +401,10 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
             intake.setPower(INTAKE_POWER);           // 1) Run intake wheels forward
             conveyor.setPower(CONVEYOR_POWER);       // 2) Run conveyor forward
             
+            // Track that intake was started by gamepad1
+            intakeFromGamepad1 = true;
+            intakeFromGamepad2 = false;
+            
             telemetry.addData("✅ Intake Function", "STARTED");
             telemetry.addData("Intake Power", "%.1f", INTAKE_POWER);
             telemetry.addData("Conveyor Power", "%.1f", CONVEYOR_POWER);
@@ -407,6 +415,10 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
             if (!indexorMoving) {
                 conveyor.setPower(0);  // Only stop conveyor if indexer is not running
             }
+            
+            // Clear intake source flags
+            intakeFromGamepad1 = false;
+            intakeFromGamepad2 = false;
             
             telemetry.addData("⏹️ Intake Function", "STOPPED");
         }
@@ -451,6 +463,10 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
         indexor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
         indexor.setPower(0);  // Ensure indexer is set to float mode when outtake stops
         
+        // Clear intake source flags when stopping outtake
+        intakeFromGamepad1 = false;
+        intakeFromGamepad2 = false;
+        
         telemetry.addData("⏹️ Outtake Function", "STOPPED");
         telemetry.addData("Indexor", "Set to FLOAT mode");
     }
@@ -461,7 +477,41 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
             conveyor.setPower(0);  // Only stop conveyor if indexer is not running
         }
         
+        // Clear intake source flags
+        intakeFromGamepad1 = false;
+        intakeFromGamepad2 = false;
+        
         telemetry.addData("⏹️ Intake Function", "STOPPED");
+    }
+    
+    /**
+     * Intake from gamepad2 joystick - similar to intakeFunction but tracks joystick source
+     */
+    private void intakeFromJoystick() {
+        boolean intakeRunning = Math.abs(intake.getPower()) > 0.1;
+        
+        if (!intakeRunning) {
+            // Start intake
+            intake.setPower(INTAKE_POWER);           // 1) Run intake wheels forward
+            conveyor.setPower(CONVEYOR_POWER);       // 2) Run conveyor forward
+            
+            // Track that intake was started by gamepad2 joystick
+            intakeFromGamepad2 = true;
+            intakeFromGamepad1 = false;
+        }
+        
+        // 3) Advance the indexer forward when ball detected in the intake sensor
+        // Check for rising edge of ball detection during intake
+        if (ballDetectedIntake && !previousBallDetectedIntake) {
+            // Ball detected - check if intake is running
+            boolean currentIntakeRunning = Math.abs(intake.getPower()) > 0.1 && intake.getPower() > 0;
+            
+            if (currentIntakeRunning && !indexorMoving) {
+                // Auto-advance indexer when ball detected during intake
+                advanceIndexer();
+                telemetry.addData("🎾 Auto Advance", "Ball detected - advancing indexer");
+            }
+        }
     }
     
     /**
