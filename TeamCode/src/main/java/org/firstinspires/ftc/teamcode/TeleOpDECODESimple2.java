@@ -268,10 +268,11 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
                 .build();
 
         try {
-            // Create the vision portal
+            // Create the vision portal with MJPEG format for better performance
             VisionPortal.Builder builder = new VisionPortal.Builder();
             builder.setCamera(hardwareMap.get(WebcamName.class, "Webcam 1"));
             builder.setCameraResolution(new Size(1280, 720));
+            builder.setStreamFormat(VisionPortal.StreamFormat.MJPEG);  // Use MJPEG for 30 FPS instead of YUY2 (10 FPS)
             builder.enableLiveView(true);
             builder.setAutoStopLiveView(false);
             builder.addProcessor(aprilTag);
