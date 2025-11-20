@@ -158,6 +158,7 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
         telemetry.addData("X", "Advance Indexer");
         telemetry.addData("B", "Trigger Function");
         telemetry.addData("Left Stick -Y", "Outtake Function");
+        telemetry.addData("Left Stick +Y", "Intake Function");
         telemetry.update();
         
         waitForStart();
@@ -331,15 +332,20 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
     }
     
     private void handleGamepad2Controls() {
-        // Handle joystick -Y - Outtake Function
+        // Handle joystick Y-axis - Outtake Function (-Y) and Intake Function (+Y)
         double joystickY = -gamepad2.left_stick_y;
         
-        if (joystickY < -0.1) {  // Negative Y (joystick pushed up)
+        if (joystickY < -0.1) {  // Negative Y (joystick pushed up) - Outtake Function
             outtakeFunction();
+        } else if (joystickY > 0.1) {  // Positive Y (joystick pushed down) - Intake Function
+            intakeFunction();
         } else {
-            // Stop outtake when joystick released
+            // Stop both functions when joystick released
             if (Math.abs(intake.getPower()) > 0 && intake.getPower() < 0) {
                 stopOuttake();
+            }
+            if (Math.abs(intake.getPower()) > 0 && intake.getPower() > 0) {
+                stopIntakeFunction();
             }
         }
         
@@ -447,6 +453,15 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
         
         telemetry.addData("⏹️ Outtake Function", "STOPPED");
         telemetry.addData("Indexor", "Set to FLOAT mode");
+    }
+    
+    private void stopIntakeFunction() {
+        intake.setPower(0);
+        if (!indexorMoving) {
+            conveyor.setPower(0);  // Only stop conveyor if indexer is not running
+        }
+        
+        telemetry.addData("⏹️ Intake Function", "STOPPED");
     }
     
     /**
