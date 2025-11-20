@@ -578,6 +578,13 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
                 // Change to RUN_WITHOUT_ENCODER mode to exit RUN_TO_POSITION mode
                 indexor.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
                 
+                // Small delay to ensure mode change takes effect
+                try {
+                    Thread.sleep(50);  // 50ms delay for mode change
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                
                 // Now set to FLOAT behavior
                 indexor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
                 
