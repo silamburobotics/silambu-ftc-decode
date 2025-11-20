@@ -89,7 +89,7 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
     // Motor power settings
     public static final double INTAKE_POWER = 0.8;
     public static final double CONVEYOR_POWER = 1.0;
-    public static final double INDEXOR_POWER = 0.4;
+    public static final double INDEXOR_POWER = 0.5;
     public static final double SHOOTER_SERVO_POWER = 1.0;
     
     // Indexor position settings
@@ -731,6 +731,9 @@ public class TeleOpDECODESimple2 extends LinearOpMode {
         if (!shooterRunning) {
             return;
         }
+        
+        // Continuously reapply shooter velocity to maintain consistent speed
+        shooter.setVelocity(currentShooterVelocity);
         
         double currentVelocity = shooter.getVelocity();
         double speedError = Math.abs(currentVelocity - currentShooterVelocity);
